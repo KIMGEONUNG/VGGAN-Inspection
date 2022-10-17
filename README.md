@@ -21,13 +21,31 @@ python scripts/sample_conditional.py -r logs/2021-01-20T16-04-20_coco_transforme
 
 ## Training
 
+We need both of 1st and 2nd training codes, becuase UniColor use them for training.
+The instruction for training described in original README is like below
+
+Training on your own dataset can be beneficial to get better tokens and hence better images for your domain.
+Those are the steps to follow to make this work:
+1. install the repo with `conda env create -f environment.yaml`, `conda activate taming` and `pip install -e .`
+1. put your .jpg files in a folder `your_folder`
+2. create 2 text files a `xx_train.txt` and `xx_test.txt` that point to the files in your training and test set respectively (for example `find $(pwd)/your_folder -name "*.jpg" > train.txt`)
+3. adapt `configs/custom_vqgan.yaml` to point to these 2 files
+4. run `python main.py --base configs/custom_vqgan.yaml -t True --gpus 0,1` to
+   train on two GPUs. Use `--gpus 0,` (with a trailing comma) to train on a single GPU. 
+
+<span style="color:red">Check whether the train code includes both states or not</span>
+
+### Training for 1st Stage
+
+### Training for 2nd Stage
+
+
 ```sh
 python main.py --base configs/coco_scene_images_transformer.yaml -t True --gpus 0
 python main.py --base configs/open_images_scene_images_transformer.yaml -t True --gpus 0
 
 ```
 
-As described in the original repo.
 
 Download first-stage models [COCO-8k-VQGAN](https://heibox.uni-heidelberg.de/f/78dea9589974474c97c1/) for COCO or [COCO/Open-Images-8k-VQGAN](https://heibox.uni-heidelberg.de/f/461d9a9f4fcf48ab84f4/) for Open Images.
 Change `ckpt_path` in `data/coco_scene_images_transformer.yaml` and `data/open_images_scene_images_transformer.yaml` to point to the downloaded first-stage models.
@@ -38,17 +56,21 @@ Code can be run with
 or
 `python main.py --base configs/open_images_scene_images_transformer.yaml -t True --gpus 0,`
 
-## Reproduce
+## Reproduce Memo
 
-### Step A
+### Check Inference
 
 - Let's make the inference code available <span style="color:green">(Done)</span>
 - Check the pretrained encoder available <span style="color:green">(Done)</span>
+  - To the best of my knowledge, They only provide pretrained encoder and decoder using COCO dataset or Open Images.
 - Check the reconstruction quality
+  - If the image fidelity and high frequency deital is performant enough, this is to show a high potentiality.
 - Draw procedure diagram with high and low level.
   - How the transformer stocastically infers images.
 
-### Step B
+### Check Train
+- check the 1st stage training code
+- check the 2nd stage training code
 - Make the train code available, and Draw procedure diagram with high and low level.
 
 
