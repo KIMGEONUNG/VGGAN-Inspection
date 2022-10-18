@@ -86,7 +86,7 @@ The first thing we have to do is the model training, step by step.
 
 #### has no attribute 'TestTubeLogger' <span style="color:green">(Solved)</span>
 
-Replace _testtube_ with _wandb_ as commit ce7155cb4e1c8cf488e4d908a20f63b7439dcbfa.
+Replace _testtube_ with _wandb_ as the [commit](https://github.com/KIMGEONUNG/VGGAN-Inspection/commit/8cb887494ae5f10afced08be186324f94ff99829).
 
 The error is as
 ```
@@ -110,15 +110,7 @@ AttributeError: module 'pytorch_lightning.loggers' has no attribute 'TestTubeLog
 The fundamental reason is the different package versions for _pytorch-lightening_ and _omegaconfig_.
 [Here](https://github.com/CompVis/taming-transformers/issues/72#issuecomment-875757912) in issue introduced a simple solution. 
 
-The solution is to change all code in _main.py_ file as
-
-```python
-# BEFORE
-logger_cfg = lightning_config.logger or OmegaConf.create()
-
-# AFTER
-logger_cfg = OmegaConf.create()
-```
+The fixed code is in the [commit](https://github.com/KIMGEONUNG/VGGAN-Inspection/commit/d50d42a089aa487b1f4619cc9097b6415f490255)   
 
 The error message is as
 
