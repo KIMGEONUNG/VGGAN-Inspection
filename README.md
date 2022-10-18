@@ -27,9 +27,23 @@ def preprocess_vqgan(x):
   return x
 ```
 
+### Output Image Postprocessing
+
+They assumes that the output image has a range [-1, 1], but not strict, so requires cliping process.
+The code example is as below.
+
+```python
+x = torch.clamp(x, -1., 1.)
+x = (x + 1.) / 2.
+```
+
+
 ### Model Components
 
-The _Gumbel_ means <span style="color:red">XX</span>.
+The VQModel consists of Encoder and Decoder and the details as following
+<details>
+<summary>Details</summary>
+
 ```bash
 GumbelVQ(
   (encoder): Encoder(
@@ -340,6 +354,7 @@ GumbelVQ(
   (post_quant_conv): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1))
 )
 ```
+</details>
 
 ## Random Generation
 
