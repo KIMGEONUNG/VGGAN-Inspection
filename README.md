@@ -84,6 +84,7 @@ The first thing we have to do is the model training, step by step.
 
 ## Issues
 
+
 #### omegaconf.errors.ConfigAttributeError: Missing key logger <span style="color:green">(Solved)</span>
 
 The fundamental reason is the different package versions for _pytorch-lightening_ and _omegaconfig_.
@@ -94,6 +95,7 @@ Not elegant, but working solution is as below
 ```sh
 pip install pytorch-lightning==1.0.8 omegaconf==2.0.0
 ```
+
 
 The error message is as
 
