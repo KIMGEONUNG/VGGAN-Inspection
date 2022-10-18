@@ -84,38 +84,15 @@ The first thing we have to do is the model training, step by step.
 
 ## Issues
 
-#### has no attribute 'TestTubeLogger' <span style="color:red">(On-going)</span>
-
-The error is as
-```
-Global seed set to 23
-Running on GPUs 0,
-Working with z of shape (1, 256, 16, 16) = 65536 dimensions.
-loaded pretrained LPIPS loss from taming/modules/autoencoder/lpips/vgg.pth
-VQLPIPSWithDiscriminator running with hinge loss.
-Traceback (most recent call last):
-File "main.py", line 468, in <module>
-trainer_kwargs["logger"] = instantiate_from_config(logger_cfg)
-File "main.py", line 119, in instantiate_from_config
-return get_obj_from_str(config["target"])(**config.get("params", dict()))
-File "main.py", line 22, in get_obj_from_str
-return getattr(importlib.import_module(module, package=None), cls)
-AttributeError: module 'pytorch_lightning.loggers' has no attribute 'TestTubeLogger'
-```
-
 #### omegaconf.errors.ConfigAttributeError: Missing key logger <span style="color:green">(Solved)</span>
 
 The fundamental reason is the different package versions for _pytorch-lightening_ and _omegaconfig_.
-[Here](https://github.com/CompVis/taming-transformers/issues/72#issuecomment-875757912) in issue introduced a simple solution. 
+[Here](https://github.com/CompVis/taming-transformers/issues/72#issuecomment-875757912) in issue introduced some solutions.
+I tried many solution, but eventually failed with subsequent issues.
+Not elegant, but working solution is as below
 
-The solution is to change all code in _main.py_ file as
-
-```python
-# BEFORE
-logger_cfg = lightning_config.logger or OmegaConf.create()
-
-# AFTER
-logger_cfg = OmegaConf.create()
+```sh
+pip install pytorch-lightning==1.0.8 omegaconf==2.0.0
 ```
 
 The error message is as
