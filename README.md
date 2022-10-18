@@ -1,9 +1,347 @@
 # VQGAN
 
 Vector Quantized Generative Adversarial Network (VGGAN) achieves a performant fusion architecture of CNN and Transformer, now become an prevalent backbone network.
-In this work, Let's inspect the deails of VQGAN and get some insights to reproduce Unicolor.
+In this work, Let's inspect the details of VQGAN and get some insights to reproduce Unicolor.
 
-## Inference
+## Reconstruction
+
+The author provides an [example code](https://colab.research.google.com/github/CompVis/taming-transformers/blob/master/scripts/reconstruction_usage.ipynb#scrollTo=3RxdhDGtyJ4q) to enable checking the reconstruction quality. 
+I move and refine the example code into a file, recon.py. 
+The example uses three types of variants `VQGAN(f8,8192)`, `VGGAN(f16, 16384)`, `VQGAN(f16, 1024)`.
+The notation `f{N}` means the spatial resolution of feature as K/N by K/N w.r.t. the input image size of K by K, that is `f8` and `f16` means 32 by 32 and 16 by 16 spatial resolution from 256 by 256 imput image.
+The second number refers to the number of codebook entries.
+Although not described, the dimensionality of codebook entries are generally 256.
+A result example is as
+![sampe](outputs/sample1.jpg) 
+As shown the figure, the high spatial dimension, VQGAN(f8, 8192), shows the most high fidelity w.r.t. image structure.
+
+
+### Input Image Preprocessing
+
+They use input images reranged from [0, 1] to [-1, 1]. 
+The code example is as below.
+
+```python
+def preprocess_vqgan(x):
+  x = 2. * x - 1.
+  return x
+```
+
+### Model Components
+
+The _Gumbel_ means <span style="color:red">XX</span>.
+```bash
+GumbelVQ(
+  (encoder): Encoder(
+    (conv_in): Conv2d(3, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+    (down): ModuleList(
+      (0): Module(
+        (block): ModuleList(
+          (0): ResnetBlock(
+            (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+          (1): ResnetBlock(
+            (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+        )
+        (attn): ModuleList()
+        (downsample): Downsample(
+          (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(2, 2))
+        )
+      )
+      (1): Module(
+        (block): ModuleList(
+          (0): ResnetBlock(
+            (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+          (1): ResnetBlock(
+            (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+        )
+        (attn): ModuleList()
+        (downsample): Downsample(
+          (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(2, 2))
+        )
+      )
+      (2): Module(
+        (block): ModuleList(
+          (0): ResnetBlock(
+            (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (conv1): Conv2d(128, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 256, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (nin_shortcut): Conv2d(128, 256, kernel_size=(1, 1), stride=(1, 1))
+          )
+          (1): ResnetBlock(
+            (norm1): GroupNorm(32, 256, eps=1e-06, affine=True)
+            (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 256, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+        )
+        (attn): ModuleList()
+        (downsample): Downsample(
+          (conv): Conv2d(256, 256, kernel_size=(3, 3), stride=(2, 2))
+        )
+      )
+      (3): Module(
+        (block): ModuleList(
+          (0): ResnetBlock(
+            (norm1): GroupNorm(32, 256, eps=1e-06, affine=True)
+            (conv1): Conv2d(256, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (nin_shortcut): Conv2d(256, 512, kernel_size=(1, 1), stride=(1, 1))
+          )
+          (1): ResnetBlock(
+            (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+            (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+        )
+        (attn): ModuleList(
+          (0): AttnBlock(
+            (norm): GroupNorm(32, 512, eps=1e-06, affine=True)
+            (q): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            (k): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            (v): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            (proj_out): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+          )
+          (1): AttnBlock(
+            (norm): GroupNorm(32, 512, eps=1e-06, affine=True)
+            (q): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            (k): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            (v): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            (proj_out): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+          )
+        )
+      )
+    )
+    (mid): Module(
+      (block_1): ResnetBlock(
+        (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+        (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+        (dropout): Dropout(p=0.0, inplace=False)
+        (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      )
+      (attn_1): AttnBlock(
+        (norm): GroupNorm(32, 512, eps=1e-06, affine=True)
+        (q): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+        (k): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+        (v): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+        (proj_out): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+      )
+      (block_2): ResnetBlock(
+        (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+        (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+        (dropout): Dropout(p=0.0, inplace=False)
+        (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      )
+    )
+    (norm_out): GroupNorm(32, 512, eps=1e-06, affine=True)
+    (conv_out): Conv2d(512, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  )
+  (decoder): Decoder(
+    (conv_in): Conv2d(256, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+    (mid): Module(
+      (block_1): ResnetBlock(
+        (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+        (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+        (dropout): Dropout(p=0.0, inplace=False)
+        (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      )
+      (attn_1): AttnBlock(
+        (norm): GroupNorm(32, 512, eps=1e-06, affine=True)
+        (q): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+        (k): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+        (v): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+        (proj_out): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+      )
+      (block_2): ResnetBlock(
+        (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+        (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+        (dropout): Dropout(p=0.0, inplace=False)
+        (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      )
+    )
+    (up): ModuleList(
+      (0): Module(
+        (block): ModuleList(
+          (0): ResnetBlock(
+            (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+          (1): ResnetBlock(
+            (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+          (2): ResnetBlock(
+            (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+        )
+        (attn): ModuleList()
+      )
+      (1): Module(
+        (block): ModuleList(
+          (0): ResnetBlock(
+            (norm1): GroupNorm(32, 256, eps=1e-06, affine=True)
+            (conv1): Conv2d(256, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (nin_shortcut): Conv2d(256, 128, kernel_size=(1, 1), stride=(1, 1))
+          )
+          (1): ResnetBlock(
+            (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+          (2): ResnetBlock(
+            (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+        )
+        (attn): ModuleList()
+        (upsample): Upsample(
+          (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        )
+      )
+      (2): Module(
+        (block): ModuleList(
+          (0): ResnetBlock(
+            (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+            (conv1): Conv2d(512, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 256, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (nin_shortcut): Conv2d(512, 256, kernel_size=(1, 1), stride=(1, 1))
+          )
+          (1): ResnetBlock(
+            (norm1): GroupNorm(32, 256, eps=1e-06, affine=True)
+            (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 256, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+          (2): ResnetBlock(
+            (norm1): GroupNorm(32, 256, eps=1e-06, affine=True)
+            (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 256, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+        )
+        (attn): ModuleList()
+        (upsample): Upsample(
+          (conv): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        )
+      )
+      (3): Module(
+        (block): ModuleList(
+          (0): ResnetBlock(
+            (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+            (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+          (1): ResnetBlock(
+            (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+            (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+          (2): ResnetBlock(
+            (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+            (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+            (dropout): Dropout(p=0.0, inplace=False)
+            (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+        )
+        (attn): ModuleList(
+          (0): AttnBlock(
+            (norm): GroupNorm(32, 512, eps=1e-06, affine=True)
+            (q): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            (k): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            (v): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            (proj_out): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+          )
+          (1): AttnBlock(
+            (norm): GroupNorm(32, 512, eps=1e-06, affine=True)
+            (q): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            (k): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            (v): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            (proj_out): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+          )
+          (2): AttnBlock(
+            (norm): GroupNorm(32, 512, eps=1e-06, affine=True)
+            (q): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            (k): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            (v): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            (proj_out): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+          )
+        )
+        (upsample): Upsample(
+          (conv): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        )
+      )
+    )
+    (norm_out): GroupNorm(32, 128, eps=1e-06, affine=True)
+    (conv_out): Conv2d(128, 3, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+  )
+  (loss): DummyLoss()
+  (quantize): GumbelQuantize(
+    (proj): Conv2d(256, 8192, kernel_size=(1, 1), stride=(1, 1))
+    (embed): Embedding(8192, 256)
+  )
+  (quant_conv): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1))
+  (post_quant_conv): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1))
+)
+```
+
+## Random Generation
 
 ```sh
 # S-FLCKR
@@ -16,7 +354,7 @@ python scripts/sample_fast.py -r logs/2021-04-03T19-39-50_cin_transformer/ -n 10
 python scripts/sample_fast.py -r logs/2021-04-23T18-19-01_ffhq_transformer/
 
 # COCO
-python scripts/sample_conditional.py -r logs/2021-01-20T16-04-20_coco_transformer/ --ignore_base_data data="{target: main.DataModuleFromConfig, params: {batch_size: 1, validation: {target: taming.data.coco.Examples}}}"
+CUDA_VISIBLE_DEVICES=1 streamlit run scripts/sample_conditional.py -- -r logs/2021-01-20T16-04-20_coco_transformer/ --ignore_base_data data="{target: main.DataModuleFromConfig, params: {batch_size: 1, validation: {target: taming.data.coco.Examples}}}"
 ```
 
 ## Training
@@ -56,14 +394,12 @@ or
 ## Reproduce Memo
 
 ### Train Reproduce
-<span style="color:blue">
-The first thing we have to do is the model training, step by step.
-</span>
 
 - Train 1st step VQGAN and achieve a proper quality <span style="color:red">(DoIt)</span>
-  - Prepare my custom dataset for birds
-- Train 1st step Chroma-VQGAN and achieve a proper quality
+  - Prepare my custom dataset for birds <span style="color:green">(Done)</span>
+  - Find the way to see their training lo <span style="color:green">(Done)</span>g
 - Train 2st step VQGAN and achieve a proper quality
+- Train 1st step Chroma-VQGAN and achieve a proper quality
 - Train 2st step Chroma-VQGAN and achieve a proper quality
 
 ### Check Inference Code

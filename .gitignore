@@ -4,3 +4,5 @@ ckpts_1st
 taming_transformers.egg-info
 vgg.pth
 datasets
+
+log.txt

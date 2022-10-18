@@ -54,8 +54,10 @@ def custom_to_pil(x):
 
 def reconstruct_with_vqgan(x, model):
   # COULD ALSO USE MODEL(X) FOR RECONSTRUCTION BUT USE EXPLICIT ENCODING AND DECODING HERE
+  # Tensor, Tensor(single value), [None, None, Tensor]
   z, _, [_, _, indices] = model.encode(x)
   print(f"VQGAN --- {model.__class__.__name__}: latent shape: {z.shape[2:]}")
+  exit()
   xrec = model.decode(z)
   return xrec
 
@@ -83,7 +85,7 @@ def preprocess(img, target_image_size=256, map_dalle=True):
 def stack_reconstructions(input, x0, x1, x2, titles=[]):
   assert input.size == x1.size == x2.size
   w, h = input.size[0], input.size[1]
-  img = Image.new("RGB", (5 * w, h))
+  img = Image.new("RGB", (4 * w, h))
   img.paste(input, (0, 0))
   img.paste(x0, (1 * w, 0))
   img.paste(x1, (2 * w, 0))
