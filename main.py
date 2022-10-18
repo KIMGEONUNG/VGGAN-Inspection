@@ -222,7 +222,7 @@ class ImageLogger(Callback):
         self.max_images = max_images
         self.logger_log_images = {
             pl.loggers.WandbLogger: self._wandb,
-            pl.loggers.TestTubeLogger: self._testtube,
+            # pl.loggers.TestTubeLogger: self._testtube,
         }
         self.log_steps = [2 ** n for n in range(int(np.log2(self.batch_freq)) + 1)]
         if not increase_log_steps:
@@ -461,8 +461,8 @@ if __name__ == "__main__":
                 }
             },
         }
-        # default_logger_cfg = default_logger_cfgs["wandb"]
-        default_logger_cfg = default_logger_cfgs["testtube"]
+        default_logger_cfg = default_logger_cfgs["wandb"]
+        # default_logger_cfg = default_logger_cfgs["testtube"]
         # logger_cfg = lightning_config.logger or OmegaConf.create()
         logger_cfg = OmegaConf.create()
         logger_cfg = OmegaConf.merge(default_logger_cfg, logger_cfg)
