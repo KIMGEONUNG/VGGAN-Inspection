@@ -15,35 +15,32 @@ python scripts/sample_fast.py -r logs/2021-04-03T19-39-50_cin_transformer/ -n 10
 # FFHQ
 python scripts/sample_fast.py -r logs/2021-04-23T18-19-01_ffhq_transformer/
 
-# coco
+# COCO
 python scripts/sample_conditional.py -r logs/2021-01-20T16-04-20_coco_transformer/ --ignore_base_data data="{target: main.DataModuleFromConfig, params: {batch_size: 1, validation: {target: taming.data.coco.Examples}}}"
 ```
 
 ## Training
 
 We need both of 1st and 2nd training codes, becuase UniColor use them for training.
-The instruction for training described in original README is like below
 
-Training on your own dataset can be beneficial to get better tokens and hence better images for your domain.
-Those are the steps to follow to make this work:
-1. install the repo with `conda env create -f environment.yaml`, `conda activate taming` and `pip install -e .`
+### Training for 1st Stage
+
 1. put your .jpg files in a folder `your_folder`
 2. create 2 text files a `xx_train.txt` and `xx_test.txt` that point to the files in your training and test set respectively (for example `find $(pwd)/your_folder -name "*.jpg" > train.txt`)
 3. adapt `configs/custom_vqgan.yaml` to point to these 2 files
 4. run `python main.py --base configs/custom_vqgan.yaml -t True --gpus 0,1` to
    train on two GPUs. Use `--gpus 0,` (with a trailing comma) to train on a single GPU. 
 
-<span style="color:red">Check whether the train code includes both states or not</span>
 
-### Training for 1st Stage
+```sh
+python main.py --base configs/custom_vqgan.yaml -t True --gpus 0,
+```
 
 ### Training for 2nd Stage
-
 
 ```sh
 python main.py --base configs/coco_scene_images_transformer.yaml -t True --gpus 0
 python main.py --base configs/open_images_scene_images_transformer.yaml -t True --gpus 0
-
 ```
 
 
@@ -58,7 +55,18 @@ or
 
 ## Reproduce Memo
 
-### Check Inference
+### Train Reproduce
+<span style="color:blue">
+The first thing we have to do is the model training, step by step.
+</span>
+
+- Train 1st step VQGAN and achieve a proper quality <span style="color:red">(DoIt)</span>
+  - Prepare my custom dataset for birds
+- Train 1st step Chroma-VQGAN and achieve a proper quality
+- Train 2st step VQGAN and achieve a proper quality
+- Train 2st step Chroma-VQGAN and achieve a proper quality
+
+### Check Inference Code
 
 - Let's make the inference code available <span style="color:green">(Done)</span>
 - Check the pretrained encoder available <span style="color:green">(Done)</span>
@@ -68,15 +76,80 @@ or
 - Draw procedure diagram with high and low level.
   - How the transformer stocastically infers images.
 
-### Check Train
+### Check Train Code
 - check the 1st stage training code
 - check the 2nd stage training code
 - Make the train code available, and Draw procedure diagram with high and low level.
 
 
-
-
 ## Issues
+
+#### has no attribute 'TestTubeLogger' <span style="color:red">(On-going)</span>
+
+The error is as
+```
+Global seed set to 23
+Running on GPUs 0,
+Working with z of shape (1, 256, 16, 16) = 65536 dimensions.
+loaded pretrained LPIPS loss from taming/modules/autoencoder/lpips/vgg.pth
+VQLPIPSWithDiscriminator running with hinge loss.
+Traceback (most recent call last):
+File "main.py", line 468, in <module>
+trainer_kwargs["logger"] = instantiate_from_config(logger_cfg)
+File "main.py", line 119, in instantiate_from_config
+return get_obj_from_str(config["target"])(**config.get("params", dict()))
+File "main.py", line 22, in get_obj_from_str
+return getattr(importlib.import_module(module, package=None), cls)
+AttributeError: module 'pytorch_lightning.loggers' has no attribute 'TestTubeLogger'
+```
+
+#### omegaconf.errors.ConfigAttributeError: Missing key logger <span style="color:green">(Solved)</span>
+
+The fundamental reason is the different package versions for _pytorch-lightening_ and _omegaconfig_.
+[Here](https://github.com/CompVis/taming-transformers/issues/72#issuecomment-875757912) in issue introduced a simple solution. 
+
+The solution is to change all code in _main.py_ file as
+
+```python
+# BEFORE
+logger_cfg = lightning_config.logger or OmegaConf.create()
+
+# AFTER
+logger_cfg = OmegaConf.create()
+```
+
+The error message is as
+
+```
+Global seed set to 23
+Running on GPUs 0,
+Working with z of shape (1, 256, 16, 16) = 65536 dimensions.
+loaded pretrained LPIPS loss from taming/modules/autoencoder/lpips/vgg.pth
+VQLPIPSWithDiscriminator running with hinge loss.
+Traceback (most recent call last):
+File "main.py", line 465, in <module>
+logger_cfg = lightning_config.logger or OmegaConf.create()
+File "/home/comar/anaconda3/lib/python3.8/site-packages/omegaconf/dictconfig.py", line 355, in __getattr__
+self._format_and_raise(
+File "/home/comar/anaconda3/lib/python3.8/site-packages/omegaconf/base.py", line 231, in _format_and_raise
+format_and_raise(
+File "/home/comar/anaconda3/lib/python3.8/site-packages/omegaconf/_utils.py", line 900, in format_and_raise
+_raise(ex, cause)
+File "/home/comar/anaconda3/lib/python3.8/site-packages/omegaconf/_utils.py", line 798, in _raise
+raise ex.with_traceback(sys.exc_info()[2])  # set env var OC_CAUSE=1 for full trace
+File "/home/comar/anaconda3/lib/python3.8/site-packages/omegaconf/dictconfig.py", line 351, in __getattr__
+return self._get_impl(
+File "/home/comar/anaconda3/lib/python3.8/site-packages/omegaconf/dictconfig.py", line 442, in _get_impl
+node = self._get_child(
+File "/home/comar/anaconda3/lib/python3.8/site-packages/omegaconf/basecontainer.py", line 73, in _get_child
+child = self._get_node(
+File "/home/comar/anaconda3/lib/python3.8/site-packages/omegaconf/dictconfig.py", line 480, in _get_node
+raise ConfigKeyError(f"Missing key {key!s}")
+omegaconf.errors.ConfigAttributeError: Missing key logger
+full_key: logger
+object_type=dict
+)))))
+```
 
 #### ModuleNotFoundError: No module named 'main' <span style="color:green">(Solved)</span>
 
