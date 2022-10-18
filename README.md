@@ -84,7 +84,9 @@ The first thing we have to do is the model training, step by step.
 
 ## Issues
 
-#### has no attribute 'TestTubeLogger' <span style="color:red">(On-going)</span>
+#### has no attribute 'TestTubeLogger' <span style="color:green">(Solved)</span>
+
+Replace _testtube_ with _wandb_ as commit ce7155cb4e1c8cf488e4d908a20f63b7439dcbfa.
 
 The error is as
 ```
