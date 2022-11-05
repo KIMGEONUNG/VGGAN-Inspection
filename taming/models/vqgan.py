@@ -53,7 +53,7 @@ class VQModel(pl.LightningModule):
         print(f"Restored from {path}")
 
     def encode(self, x):
-        h = self.encoder(x)
+        h = self.encoder(x) # torch.Size([8, 256, 16, 16])
         h = self.quant_conv(h)
         quant, emb_loss, info = self.quantize(h)
         return quant, emb_loss, info

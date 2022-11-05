@@ -118,17 +118,21 @@ if __name__ == "__main__":
   # DISABLE GRAD TO SAVE MEMORY
   torch.set_grad_enabled(False)
   # SET DEVICE
-  DEVICE = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+  DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
   # LOAD CONFIG AND MODEL
   ## Load f8, 8192
   config32x32 = load_config("logs/vqgan_gumbel_f8/configs/model.yaml",
                             display=False)
-
+  print(config32x32)
+  exit()
   model32x32 = load_vqgan(
       config32x32,
       ckpt_path="logs/vqgan_gumbel_f8/checkpoints/last.ckpt",
       is_gumbel=True).to(DEVICE)
+
+  print(model32x32)
+  exit()
 
   img = reconstruction_pipeline(
       url='https://heibox.uni-heidelberg.de/f/7bb608381aae4539ba7a/?dl=1',

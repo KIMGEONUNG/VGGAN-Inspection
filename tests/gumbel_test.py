@@ -122,15 +122,29 @@ class GumbelQuantize(nn.Module):
 
 if __name__ == "__main__":
 
-  z_channels = 256
+  # THIS IS FROM CONFIG
+  z_channels = 512
   embed_dim = 256
-  n_embed = 1024
-  kl_weight = 1.0
+  n_embed = 10 
+
+  # THE BELOWS IS FROM HARDCODING
+  kl_weight = 1e-8
+  temp_init = 1.0
   remap = None
 
-  quantize = GumbelQuantize(z_channels,
-                            embed_dim,
-                            n_embed=n_embed,
+  quantize = GumbelQuantize(z_channels, # ch_dim of z_hat
+                            embed_dim,  # ch_dim of z, that is code
+                            n_embed=n_embed, # The number of codes
                             kl_weight=kl_weight,
-                            temp_init=1.0,
+                            temp_init=temp_init,
                             remap=remap)
+
+  x = torch.randn(1, 512, 16, 16)
+  # print('hello world')
+  y1, y2, y3 = quantize(x)
+  # print('hello world')
+  # print(y.shape)
+  print(y1.shape)
+  # print(y2.shape)
+  print(y2)
+  print(y3)

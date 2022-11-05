@@ -3,7 +3,41 @@
 Vector Quantized Generative Adversarial Network (VGGAN) achieves a performant fusion architecture of CNN and Transformer, now become an prevalent backbone network.
 In this work, Let's inspect the details of VQGAN and get some insights to reproduce Unicolor.
 
+## Fast links
+
+- [Reproduce Memo](#reproduce-memo)
+- [Reconstruction](#reconstruction)
+- [Training VQGAN](#training-vqgan)
+- [Issues](#issues)
+
+## Reproduce Memo
+<a id="reproduce-memo"></a>
+
+- <span style="color:red">Reproduce 1st stage Chroma-VQGAN and achieve a proper quality</span>
+  - Implement grayscale encoder
+    - Succeed feedforward without Gumbel softmax <span style="color:green">(Done)</span>
+    - Succeed feedforward with Gumbel softmax 
+      - Check an input and outupt of gumbel code <span style="color:red">(WIP)</span>
+    - Investigate Gumbel Softmax 
+      - Succeed feedforward of gumbel <span style="color:green">(Done)</span>
+      - Write doc4 each arguments of gumbel <span style="color:red">(WIP)</span>
+
+
+<figure>
+<img src="assets/teaser.png" alt="fail" style="width:100%">
+<figcaption align = "center"><b>Fig.1 VGGAN</b></figcaption>
+</figure>
+
+<figure>
+<img src="assets/chroma-vqgan.png" alt="fail" style="width:100%">
+<figcaption align = "center"><b>Fig.2 UniColor</b></figcaption>
+</figure>
+
+## Idea Memo
+- random grascale transfer? usint 1x1 convolution
+
 ## Reconstruction
+<a id="reconstruction"></a>
 
 The author provides an [example code](https://colab.research.google.com/github/CompVis/taming-transformers/blob/master/scripts/reconstruction_usage.ipynb#scrollTo=3RxdhDGtyJ4q) to enable checking the reconstruction quality. 
 I move and refine the example code into a file, recon.py. 
@@ -12,9 +46,11 @@ The notation `f{N}` means the spatial resolution of feature as K/N by K/N w.r.t.
 The second number refers to the number of codebook entries.
 Although not described, the dimensionality of codebook entries are generally 256.
 A result example is as
-![sampe](outputs/sample1.jpg) 
+![sampe](assets/cmp1.jpg) 
 As shown the figure, the high spatial dimension, VQGAN(f8, 8192), shows the most high fidelity w.r.t. image structure.
 
+Although VQGAN shows the performant reconstruction capability, they fail to restore fine details like face elements as shown in below figure.
+![sampe](assets/cmp2.jpg) 
 
 ### Input Image Preprocessing
 
@@ -36,6 +72,124 @@ The code example is as below.
 x = torch.clamp(x, -1., 1.)
 x = (x + 1.) / 2.
 ```
+
+### Loss
+
+To change the training process, we need to understand the loss calculations. 
+The loss is abstracted by _self.loss(...)_ function as
+
+```python
+def training_step(self, batch, batch_idx, optimizer_idx):
+  x = self.get_input(batch, self.image_key)
+  xrec, qloss = self(x)
+
+  if optimizer_idx == 0:
+    # autoencode
+    aeloss, log_dict_ae = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
+                                    last_layer=self.get_last_layer(), split="train")
+
+    self.log("train/aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+    self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
+    return aeloss
+
+  if optimizer_idx == 1:
+    # discriminator
+    discloss, log_dict_disc = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
+                                    last_layer=self.get_last_layer(), split="train")
+    self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+    self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
+    return discloss
+```
+
+The abstracted loss function is as belows
+
+```python
+class VQLPIPSWithDiscriminator(nn.Module):
+  ...
+  def forward(self, codebook_loss, inputs, reconstructions, optimizer_idx,
+              global_step, last_layer=None, cond=None, split="train"):
+    rec_loss = torch.abs(inputs.contiguous() - reconstructions.contiguous())
+    if self.perceptual_weight > 0:
+      p_loss = self.perceptual_loss(inputs.contiguous(), reconstructions.contiguous())
+      rec_loss = rec_loss + self.perceptual_weight * p_loss
+    else:
+      p_loss = torch.tensor([0.0])
+
+    nll_loss = rec_loss
+    #nll_loss = torch.sum(nll_loss) / nll_loss.shape[0]
+    nll_loss = torch.mean(nll_loss)
+
+    # now the GAN part
+    if optimizer_idx == 0:
+      # generator update
+      if cond is None:
+        assert not self.disc_conditional
+        logits_fake = self.discriminator(reconstructions.contiguous())
+      else:
+        assert self.disc_conditional
+        logits_fake = self.discriminator(torch.cat((reconstructions.contiguous(), cond), dim=1))
+      g_loss = -torch.mean(logits_fake)
+
+      try:
+        d_weight = self.calculate_adaptive_weight(nll_loss, g_loss, last_layer=last_layer)
+      except RuntimeError:
+        assert not self.training
+        d_weight = torch.tensor(0.0)
+
+      disc_factor = adopt_weight(self.disc_factor, global_step, threshold=self.discriminator_iter_start)
+      loss = nll_loss + d_weight * disc_factor * g_loss + self.codebook_weight * codebook_loss.mean()
+
+      log = {"{}/total_loss".format(split): loss.clone().detach().mean(),
+             "{}/quant_loss".format(split): codebook_loss.detach().mean(),
+             "{}/nll_loss".format(split): nll_loss.detach().mean(),
+             "{}/rec_loss".format(split): rec_loss.detach().mean(),
+             "{}/p_loss".format(split): p_loss.detach().mean(),
+             "{}/d_weight".format(split): d_weight.detach(),
+             "{}/disc_factor".format(split): torch.tensor(disc_factor),
+             "{}/g_loss".format(split): g_loss.detach().mean(),
+             }
+      return loss, log
+
+    if optimizer_idx == 1:
+      # second pass for discriminator update
+      if cond is None:
+        logits_real = self.discriminator(inputs.contiguous().detach())
+        logits_fake = self.discriminator(reconstructions.contiguous().detach())
+      else:
+        logits_real = self.discriminator(torch.cat((inputs.contiguous().detach(), cond), dim=1))
+        logits_fake = self.discriminator(torch.cat((reconstructions.contiguous().detach(), cond), dim=1))
+
+      disc_factor = adopt_weight(self.disc_factor, global_step, threshold=self.discriminator_iter_start)
+      d_loss = disc_factor * self.disc_loss(logits_real, logits_fake)
+
+      log = {"{}/disc_loss".format(split): d_loss.clone().detach().mean(),
+             "{}/logits_real".format(split): logits_real.detach().mean(),
+             "{}/logits_fake".format(split): logits_fake.detach().mean()
+             }
+      return d_loss, log
+```
+
+### Stochastic Intensity Map
+
+### Feedforward
+
+```python
+class VQModel(pl.LightningModule):
+  ...
+  def forward(self, input):
+      quant, diff, _ = self.encode(input)
+      dec = self.decode(quant)
+      return dec, diff
+  ...
+```
+
+### Objectives
+
+As a part of objectives, they used same loss terms as used in VQVAE as  
+$\mathcal{L}_{VQ}=\mathcal{L}_{recon} + \mathcal{L}_{code} + \mathcal{L}_{commit}$  
+$\mathcal{L}_{recon}=||x - \hat{x}||^2$ for supervison,  
+$\mathcal{L}_{code}=||sg[E(x)] - z_q]|^{2}_{2}$ to optimize predefined codebooks  
+$\mathcal{L}_{commit}=||sg[z_q] - E(x)||^{2}_{2}$  
 
 
 ### Model Components
@@ -356,7 +510,11 @@ GumbelVQ(
 ```
 </details>
 
-## Random Generation
+
+## Sampling
+
+The author provides some commands to sample images from pretrained GAN models.
+
 
 ```sh
 # S-FLCKR
@@ -372,7 +530,16 @@ python scripts/sample_fast.py -r logs/2021-04-23T18-19-01_ffhq_transformer/
 CUDA_VISIBLE_DEVICES=1 streamlit run scripts/sample_conditional.py -- -r logs/2021-01-20T16-04-20_coco_transformer/ --ignore_base_data data="{target: main.DataModuleFromConfig, params: {batch_size: 1, validation: {target: taming.data.coco.Examples}}}"
 ```
 
-## Training
+To be honest, the sampling quality is quite dissapointing, which implies that the representation is performant, but the sampling process is comparably inferior.
+The below shows some results samples from FFHQ pretrained model.
+
+![smp1](assets/sample-ffhq1.png) 
+![smp2](assets/sample-ffhq2.png) 
+![smp3](assets/sample-ffhq3.png) 
+
+
+## Training VQGAN
+<a id="training-vqgan"></a>
 
 We need both of 1st and 2nd training codes, becuase UniColor use them for training.
 
@@ -406,39 +573,42 @@ Code can be run with
 or
 `python main.py --base configs/open_images_scene_images_transformer.yaml -t True --gpus 0,`
 
-## Reproduce Memo
 
-### Train Reproduce
+## Output Sequence w.r.t. Epoches
+ The first row is GT image and the next things are the reconstructuion results of every 10 epoches.
+Referred the results, the epoch number 50 is enough to check the feasibility.
+After 150 epoch, there are few changes.
 
-- Train 1st step VQGAN and achieve a proper quality <span style="color:red">(DoIt)</span>
-  - Prepare my custom dataset for birds <span style="color:green">(Done)</span>
-  - Find the way to see their training lo <span style="color:green">(Done)</span>g
-- Train 2st step VQGAN and achieve a proper quality
-- Train 1st step Chroma-VQGAN and achieve a proper quality
-- Train 2st step Chroma-VQGAN and achieve a proper quality
-
-### Check Inference Code
-
-- Let's make the inference code available <span style="color:green">(Done)</span>
-- Check the pretrained encoder available <span style="color:green">(Done)</span>
-  - To the best of my knowledge, They only provide pretrained encoder and decoder using COCO dataset or Open Images.
-- Check the reconstruction quality
-  - If the image fidelity and high frequency deital is performant enough, this is to show a high potentiality.
-- Draw procedure diagram with high and low level.
-  - How the transformer stocastically infers images.
-
-### Check Train Code
-- check the 1st stage training code
-- check the 2nd stage training code
-- Make the train code available, and Draw procedure diagram with high and low level.
+![aa](assets/training-stage1-each-epoch/inputs_gs-406999_e-000999_b-000000.png) 
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-000406_e-000000_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-004476_e-000010_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-008546_e-000020_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-012616_e-000030_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-016686_e-000040_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-020756_e-000050_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-024826_e-000060_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-028896_e-000070_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-032966_e-000080_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-037036_e-000090_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-041106_e-000100_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-045176_e-000110_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-049246_e-000120_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-053316_e-000130_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-057386_e-000140_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-061456_e-000150_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-065526_e-000160_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-069596_e-000170_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-073666_e-000180_b-000000.png)
+![aa](assets/training-stage1-each-epoch/reconstructions_gs-077736_e-000190_b-000000.png)
 
 
 ## Issues
+<a id="issues"></a>
 
 #### omegaconf.errors.ConfigAttributeError: Missing key logger <span style="color:green">(Solved)</span>
 
-The fundamental reason is the different package versions for _pytorch-lightening_ and _omegaconfig_.
-[Here](https://github.com/CompVis/taming-transformers/issues/72#issuecomment-875757912) in issue introduced some solutions.
+The fundamental reason is package version mismatch to _pytorch-lightening_ and _omegaconfig_.
+[An issue article](https://github.com/CompVis/taming-transformers/issues/72#issuecomment-875757912) introduced some solutions.
 I tried many solution, but eventually failed with subsequent issues.
 Not elegant, but working solution is as below
 
@@ -447,6 +617,9 @@ pip install pytorch-lightning==1.0.8 omegaconf==2.0.0
 ```
 
 The error message is as
+
+<details>
+<summary>messages</summary>
 
 ```
 Global seed set to 23
@@ -478,6 +651,8 @@ full_key: logger
 object_type=dict
 )))))
 ```
+
+</details>
 
 #### ModuleNotFoundError: No module named 'main' <span style="color:green">(Solved)</span>
 

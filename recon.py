@@ -57,7 +57,6 @@ def reconstruct_with_vqgan(x, model):
   # Tensor, Tensor(single value), [None, None, Tensor]
   z, _, [_, _, indices] = model.encode(x)
   print(f"VQGAN --- {model.__class__.__name__}: latent shape: {z.shape[2:]}")
-  exit()
   xrec = model.decode(z)
   return xrec
 
@@ -99,6 +98,24 @@ def stack_reconstructions(input, x0, x1, x2, titles=[]):
 
 def reconstruction_pipeline(url, size=320):
   x_vqgan = preprocess(download_image(url),
+                       target_image_size=size,
+                       map_dalle=False)
+  x_vqgan = x_vqgan.to(DEVICE)
+
+  print(f"input is of size: {x_vqgan.shape}")
+  x0 = reconstruct_with_vqgan(preprocess_vqgan(x_vqgan), model32x32)
+  x1 = reconstruct_with_vqgan(preprocess_vqgan(x_vqgan), model16384)
+  x2 = reconstruct_with_vqgan(preprocess_vqgan(x_vqgan), model1024)
+  img = stack_reconstructions(custom_to_pil(preprocess_vqgan(x_vqgan[0])),
+                              custom_to_pil(x0[0]),
+                              custom_to_pil(x1[0]),
+                              custom_to_pil(x2[0]),
+                              titles=titles)
+  return img
+
+
+def reconstruction_pipeline_local(path, size=320):
+  x_vqgan = preprocess(PIL.Image.open(path),
                        target_image_size=size,
                        map_dalle=False)
   x_vqgan = x_vqgan.to(DEVICE)
@@ -178,3 +195,7 @@ if __name__ == "__main__":
       'https://assets.bwbx.io/images/users/iqjWHBFdfxIU/iKIWgaiJUtss/v2/1000x-1.jpg',
       size=384)
   img.save('outputs/sample6.jpg')
+
+  img = reconstruction_pipeline_local(
+      path='./inputs/ILSVRC2012_val_00045880_ccrop_0375.JPEG', size=256)
+  img.save('outputs/sample7.jpg')
