@@ -13,14 +13,11 @@ In this work, Let's inspect the details of VQGAN and get some insights to reprod
 ## Reproduce Memo
 <a id="reproduce-memo"></a>
 
-- <span style="color:red">Reproduce 1st stage Chroma-VQGAN and achieve a proper quality</span>
-  - Implement grayscale encoder
-    - Succeed feedforward without Gumbel softmax <span style="color:green">(Done)</span>
-    - Succeed feedforward with Gumbel softmax 
-      - Check an input and outupt of gumbel code <span style="color:red">(WIP)</span>
-    - Investigate Gumbel Softmax 
-      - Succeed feedforward of gumbel <span style="color:green">(Done)</span>
-      - Write doc4 each arguments of gumbel <span style="color:red">(WIP)</span>
+- Reproduce 1st stage Chroma-VQGAN 
+  - Write code for feedforward <span style="color:green">(Done)</span>
+  - Reproduce training codes
+- Investigate Gumbel Softmax 
+  - Write doc4 each arguments of gumbel
 
 
 <figure>

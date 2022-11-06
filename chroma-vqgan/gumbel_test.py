@@ -7,13 +7,6 @@ from einops import rearrange
 
 
 class GumbelQuantize(nn.Module):
-  """
-    credit to @karpathy: https://github.com/karpathy/deep-vector-quantization/blob/main/model.py (thanks!)
-    Gumbel Softmax trick quantizer
-    Categorical Reparameterization with Gumbel-Softmax, Jang et al. 2016
-    https://arxiv.org/abs/1611.01144
-    """
-
   def __init__(self,
                num_hiddens,
                embedding_dim,
