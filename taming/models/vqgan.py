@@ -41,7 +41,7 @@ class VQModel(pl.LightningModule):
         if monitor is not None:
             self.monitor = monitor
 
-    def init_from_ckpt(self, path, ignore_keys=list()):
+    def init_from_ckpt(self, path, ignore_keys=list()): # For retrain
         sd = torch.load(path, map_location="cpu")["state_dict"]
         keys = list(sd.keys())
         for k in keys:
@@ -80,7 +80,9 @@ class VQModel(pl.LightningModule):
         x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
         return x.float()
 
-    def training_step(self, batch, batch_idx, optimizer_idx):
+    def training_step(self, batch, batch_idx, optimizer_idx): 
+        # If you use multiple optimizers, training_step() will have an additional optimizer_idx parameter.
+        # ref: https://pytorch-lightning.readthedocs.io/en/stable/common/lightning_module.html
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
 
@@ -133,7 +135,7 @@ class VQModel(pl.LightningModule):
     def get_last_layer(self):
         return self.decoder.conv_out.weight
 
-    def log_images(self, batch, **kwargs):
+    def log_images(self, batch, **kwargs): #  callback
         log = dict()
         x = self.get_input(batch, self.image_key)
         x = x.to(self.device)

@@ -215,7 +215,7 @@ class VectorQuantizer2(nn.Module):
     Improved version over VectorQuantizer, can be used as a drop-in replacement. Mostly
     avoids costly matrix multiplications and allows for post-hoc remapping of indices.
     """
-    # NOTE: due to a bug the beta term was applied to the wrong term. for
+    # NOTE: due to a bug the beta term was applied to the wrong term, which is from the VQVAE official implementation. for
     # backwards compatibility we use the buggy version by default, but you can
     # specify legacy=False to fix it.
     def __init__(self, n_e, e_dim, beta, remap=None, unknown_index="random",
@@ -290,7 +290,7 @@ class VectorQuantizer2(nn.Module):
         if not self.legacy:
             loss = self.beta * torch.mean((z_q.detach()-z)**2) + \
                    torch.mean((z_q - z.detach()) ** 2)
-        else:
+        else: 
             loss = torch.mean((z_q.detach()-z)**2) + self.beta * \
                    torch.mean((z_q - z.detach()) ** 2)
 
@@ -300,12 +300,12 @@ class VectorQuantizer2(nn.Module):
         # reshape back to match original input shape
         z_q = rearrange(z_q, 'b h w c -> b c h w').contiguous()
 
-        if self.remap is not None:
+        if self.remap is not None:  # Pass
             min_encoding_indices = min_encoding_indices.reshape(z.shape[0],-1) # add batch axis
             min_encoding_indices = self.remap_to_used(min_encoding_indices)
             min_encoding_indices = min_encoding_indices.reshape(-1,1) # flatten
 
-        if self.sane_index_shape:
+        if self.sane_index_shape:  # Pass
             min_encoding_indices = min_encoding_indices.reshape(
                 z_q.shape[0], z_q.shape[2], z_q.shape[3])
 

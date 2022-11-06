@@ -14,14 +14,12 @@ In this work, Let's inspect the details of VQGAN and get some insights to reprod
 <a id="reproduce-memo"></a>
 
 - Reproduce 1st stage Chroma-VQGAN trying to implant our custom setting as intact as possible.
-  - Reproduce training codes <span style="color:red">(WIP)</span>
-    - Merge VQModel with GumbelVQ <span style="color:green">(Done)</span>
-    - Test merged VQModel with GumbelVQ <span style="color:red">(WIP)</span>
-    - Understand about pytorch lightning
-      - Investigate 'Trainer'
-- Investigate Gumbel Softmax 
-  - Write doc4 each arguments of gumbel
-
+  - Reproduce training codes 
+    - Understand 'training sequence of VQModel' <span style="color:green">(Done)</span>
+    - Understand training_step function <span style="color:green">(Done)</span>
+    - Understand details of loss <span style="color:green">(Done)</span>
+    - Write ChromaVQ code which is inherited by VQModel <span style="color:red">(WIP)</span>
+    - Try training
 
 <figure>
 <img src="assets/teaser.png" alt="fail" style="width:100%">
@@ -35,6 +33,22 @@ In this work, Let's inspect the details of VQGAN and get some insights to reprod
 
 ## Idea Memo
 - random grascale transfer? usint 1x1 convolution
+
+## Pytorch Lightning Call Sequence
+
+- configure_optimizers
+- validation_step
+- training_step
+
+## Gradient Copy
+
+Gradient copy overcoming non-differientiable operation of the _argmin_ can be implemented like below.
+
+```python
+# use value of z_q and gradient of z
+z_q = z + (z_q - z).detach()
+```
+
 
 ## Reconstruction
 <a id="reconstruction"></a>

@@ -117,7 +117,7 @@ def nondefault_trainer_args(opt):
 
 
 def instantiate_from_config(config):
-  if not "target" in config:
+  if "target" not in config:
     raise KeyError("Expected key `target` to instantiate.")
   return get_obj_from_str(config["target"])(**config.get("params", dict()))
 
@@ -432,11 +432,12 @@ if __name__ == "__main__":
   seed_everything(opt.seed)
 
   try:
+    ################################################################## CONFIG 
     # init and save configs
     configs = [OmegaConf.load(cfg) for cfg in opt.base]
     cli = OmegaConf.from_dotlist(unknown)
     config = OmegaConf.merge(*configs, cli)
-    lightning_config = config.pop("lightning", OmegaConf.create())
+    lightning_config = config.pop("lightning", OmegaConf.create()) 
     # merge trainer cli with config
     trainer_config = lightning_config.get("trainer", OmegaConf.create())
     # default to ddp
@@ -451,12 +452,14 @@ if __name__ == "__main__":
       print(f"Running on GPUs {gpuinfo}")
       cpu = False
     trainer_opt = argparse.Namespace(**trainer_config)
-    lightning_config.trainer = trainer_config
 
-    # model
+    lightning_config.trainer = trainer_config  
+    # lightning_config> {'trainer': {'distributed_backend': 'ddp', 'gpus': '0,'}}
+
+    ################################################################## MODEL 
     model = instantiate_from_config(config.model)
 
-    # trainer and callbacks
+    ######################################################## TRAINER & CALLBACK
     trainer_kwargs = dict()
 
     # default logger configs
@@ -545,8 +548,10 @@ if __name__ == "__main__":
     ]
 
     trainer = Trainer.from_argparse_args(trainer_opt, **trainer_kwargs)
+    # trainer_opt> Namespace(distributed_backend='ddp', gpus='0,')
+    # trainer_kwargs> dict_keys(['logger', 'checkpoint_callback', 'callbacks'])
 
-    # data
+    ###################################################################### DATA
     data = instantiate_from_config(config.data)
     # NOTE according to https://pytorch-lightning.readthedocs.io/en/latest/datamodules.html
     # calling these ourselves should not be necessary but it is.
