@@ -13,9 +13,12 @@ In this work, Let's inspect the details of VQGAN and get some insights to reprod
 ## Reproduce Memo
 <a id="reproduce-memo"></a>
 
-- Reproduce 1st stage Chroma-VQGAN 
-  - Write code for feedforward <span style="color:green">(Done)</span>
-  - Reproduce training codes
+- Reproduce 1st stage Chroma-VQGAN trying to implant our custom setting as intact as possible.
+  - Reproduce training codes <span style="color:red">(WIP)</span>
+    - Merge VQModel with GumbelVQ <span style="color:green">(Done)</span>
+    - Test merged VQModel with GumbelVQ <span style="color:red">(WIP)</span>
+    - Understand about pytorch lightning
+      - Investigate 'Trainer'
 - Investigate Gumbel Softmax 
   - Write doc4 each arguments of gumbel
 
