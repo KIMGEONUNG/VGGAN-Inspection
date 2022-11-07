@@ -1,4 +1,4 @@
-# VQGAN
+# Chroma-VQGAN
 
 Vector Quantized Generative Adversarial Network (VGGAN) achieves a performant fusion architecture of CNN and Transformer, now become an prevalent backbone network.
 In this work, Let's inspect the details of VQGAN and get some insights to reproduce Unicolor.
@@ -14,12 +14,7 @@ In this work, Let's inspect the details of VQGAN and get some insights to reprod
 <a id="reproduce-memo"></a>
 
 - Reproduce 1st stage Chroma-VQGAN trying to implant our custom setting as intact as possible.
-  - Reproduce training codes 
-    - Understand 'training sequence of VQModel' <span style="color:green">(Done)</span>
-    - Understand training_step function <span style="color:green">(Done)</span>
-    - Understand details of loss <span style="color:green">(Done)</span>
-    - Write ChromaVQ code which is inherited by VQModel <span style="color:red">(WIP)</span>
-    - Try training
+  - Reproduce training codes <span style="color:green">(Done)</span>
 
 <figure>
 <img src="assets/teaser.png" alt="fail" style="width:100%">
@@ -48,6 +43,19 @@ Gradient copy overcoming non-differientiable operation of the _argmin_ can be im
 # use value of z_q and gradient of z
 z_q = z + (z_q - z).detach()
 ```
+
+## Preprocessing
+Let $x$ be an arbitrary image $[R,G,B]\in [0,1]^3$, and consider an arbitrary 
+grayscale conversion $g([R,G,B]) = \alpha R + \beta G + \gamma B$ where $\alpha+\beta+\gamma=1$ and a reranging 
+function $f(x)=2x-1$. 
+Check $(f \circ g)(x) = (g \circ f)(x)$.
+
+$$ 
+(f \circ g)(x) = f(\alpha R + \beta G + \gamma B) =2\alpha R + 2\beta G + 2\gamma B -1 \\
+(g \circ f)(x) = g([2R-1,2G-1,2B-1]) = 2\alpha R + 2\beta G + 2\gamma B -\alpha-\beta-\gamma  \\
+=2\alpha R + 2\beta G + 2\gamma B -1 \\
+$$
+
 
 
 ## Reconstruction

@@ -1,47 +1,36 @@
 model:
   base_learning_rate: 4.5e-6
-  target: taming.models.vqgan.VQModel
+  target: taming.models.vqgan.ChromaVQ
   params:
     embed_dim: 256
-    n_embed: 1024
-    ddconfig:
+    n_embed: 2048
+    encoder_config:
       double_z: False
       z_channels: 256
       resolution: 256
       in_channels: 3
-      out_ch: 3
       ch: 128
-      ch_mult: [ 1,1,2,2,4]  # num_down = len(ch_mult)-1
+      ch_mult: [ 1,1,2,2,4]
       num_res_blocks: 2
       attn_resolutions: [16]
       dropout: 0.0
-    decoder:
-      z_channels: 1024
-      resolution: 256
-      in_channels: 3
-      out_ch: 3
-      ch: 128
-      ch_mult: [ 1,1,2,2,4]  # num_down = len(ch_mult)-1
-      num_res_blocks: 2
-      attn_resolutions: [16]
-      dropout: 0.0
-    encoder:
+    encoder_gray_config:
       double_z: False
-      z_channels: 512
-      resolution: 256
-      in_channels: 3
-      ch: 128
-      ch_mult: [ 1,1,2,2,4]  # num_down = len(ch_mult)-1
-      num_res_blocks: 2
-      attn_resolutions: [16]
-      dropout: 0.0
-    encoder_gray:
-      double_z: False
-      z_channels: 512
+      z_channels: 256
       resolution: 256
       in_channels: 1
       ch: 128
-      ch_mult: [ 1,1,2,2,4]  # num_down = len(ch_mult)-1
+      ch_mult: [ 1,1,2,2,4] 
+      num_res_blocks: 2
+      attn_resolutions: [16]
+      dropout: 0.0
+    decoder_config:
+      z_channels: 512
+      resolution: 256
+      in_channels: 3
+      out_ch: 3
+      ch: 128
+      ch_mult: [ 1,1,2,2,4]  
       num_res_blocks: 2
       attn_resolutions: [16]
       dropout: 0.0
@@ -58,7 +47,7 @@ model:
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 8
+    batch_size: 6
     num_workers: 8
     train:
       target: taming.data.custom.CustomTrain
