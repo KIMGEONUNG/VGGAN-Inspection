@@ -183,10 +183,10 @@ class Net2NetTransformer(pl.LightningModule):
 
     @torch.no_grad()
     def decode_to_img(self, index, zshape):
-        index = self.permuter(index, reverse=True)
+        index = self.permuter(index, reverse=True)  # [batch, 256(code)]
         bhwc = (zshape[0],zshape[2],zshape[3],zshape[1])
         quant_z = self.first_stage_model.quantize.get_codebook_entry(
-            index.reshape(-1), shape=bhwc)
+            index.reshape(-1), shape=bhwc)  # [batch, 256(code), 16, 16]
         x = self.first_stage_model.decode(quant_z)
         return x
 

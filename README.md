@@ -13,8 +13,15 @@ In this work, Let's inspect the details of VQGAN and get some insights to reprod
 ## Reproduce Memo
 <a id="reproduce-memo"></a>
 
-- Reproduce 1st stage Chroma-VQGAN trying to implant our custom setting as intact as possible.
-  - Reproduce training codes <span style="color:green">(Done)</span>
+- Reproduce 1st stage training codes for Chroma-VQGAN <span style="color:green">(Done)</span>
+- Reproduce 2nd stage training codes for Chroma-VQGAN 
+  - Understand feedforward codes <span style="color:green">(Done)</span>
+  - Understand training codes 
+    - Write vimspector configuration to investigate the training process <span style="color:red">(WIP)</span>
+  - Implement training codes 
+- Add stochastic grayscale shift to 1st stage <span style="color:gray">(Undo)</span>
+  - Implement several types of conversion 
+- Connect UI to model <span style="color:gray">(Undo)</span>
 
 <figure>
 <img src="assets/teaser.png" alt="fail" style="width:100%">
@@ -25,6 +32,54 @@ In this work, Let's inspect the details of VQGAN and get some insights to reprod
 <img src="assets/chroma-vqgan.png" alt="fail" style="width:100%">
 <figcaption align = "center"><b>Fig.2 UniColor</b></figcaption>
 </figure>
+
+## Stage2 Structure
+
+FFHQ pretrained model used _Net2NetTransformer_ class.
+
+```python
+# taming/models/cond_transformer.py
+class Net2NetTransformer(pl.LightningModule):
+  ...
+```
+
+## Autoregressive Sampling
+
+The following code show the process of autoregressive sampling in quantized feature space.
+Note that the next quantized code is sampled by the estimated mutinomial distribution.
+
+```python
+# taming/modules/transformer/mingpt.py
+@torch.no_grad()
+def sample_with_past(x, model, steps, temperature=1., sample_logits=True,
+                     top_k=None, top_p=None, callback=None):
+    # x is conditioning
+    sample = x
+    cond_len = x.shape[1]
+    past = None
+    for n in range(steps):
+        if callback is not None:
+            callback(n)
+        logits, _, present = model.forward_with_past(x, past=past, past_length=(n+cond_len-1))
+        if past is None:
+            past = [present]
+        else:
+            past.append(present)
+        logits = logits[:, -1, :] / temperature
+        if top_k is not None:
+            logits = top_k_top_p_filtering(logits, top_k=top_k, top_p=top_p)
+
+        probs = F.softmax(logits, dim=-1)
+        if not sample_logits:
+            _, x = torch.topk(probs, k=1, dim=-1)
+        else:
+            x = torch.multinomial(probs, num_samples=1) # Note that sampling from multinomial
+        # append to the sequence and continue
+        sample = torch.cat((sample, x), dim=1)
+    del past
+    sample = sample[:, cond_len:]  # cut conditioning off
+    return sample
+```
 
 ## Idea Memo
 - random grascale transfer? usint 1x1 convolution
@@ -43,20 +98,6 @@ Gradient copy overcoming non-differientiable operation of the _argmin_ can be im
 # use value of z_q and gradient of z
 z_q = z + (z_q - z).detach()
 ```
-
-## Preprocessing
-Let $x$ be an arbitrary image $[R,G,B]\in [0,1]^3$, and consider an arbitrary 
-grayscale conversion $g([R,G,B]) = \alpha R + \beta G + \gamma B$ where $\alpha+\beta+\gamma=1$ and a reranging 
-function $f(x)=2x-1$. 
-Check $(f \circ g)(x) = (g \circ f)(x)$.
-
-$$ 
-(f \circ g)(x) = f(\alpha R + \beta G + \gamma B) =2\alpha R + 2\beta G + 2\gamma B -1 \\
-(g \circ f)(x) = g([2R-1,2G-1,2B-1]) = 2\alpha R + 2\beta G + 2\gamma B -\alpha-\beta-\gamma  \\
-=2\alpha R + 2\beta G + 2\gamma B -1 \\
-$$
-
-
 
 ## Reconstruction
 <a id="reconstruction"></a>
@@ -95,115 +136,6 @@ x = torch.clamp(x, -1., 1.)
 x = (x + 1.) / 2.
 ```
 
-### Loss
-
-To change the training process, we need to understand the loss calculations. 
-The loss is abstracted by _self.loss(...)_ function as
-
-```python
-def training_step(self, batch, batch_idx, optimizer_idx):
-  x = self.get_input(batch, self.image_key)
-  xrec, qloss = self(x)
-
-  if optimizer_idx == 0:
-    # autoencode
-    aeloss, log_dict_ae = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
-                                    last_layer=self.get_last_layer(), split="train")
-
-    self.log("train/aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
-    self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
-    return aeloss
-
-  if optimizer_idx == 1:
-    # discriminator
-    discloss, log_dict_disc = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
-                                    last_layer=self.get_last_layer(), split="train")
-    self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
-    self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
-    return discloss
-```
-
-The abstracted loss function is as belows
-
-```python
-class VQLPIPSWithDiscriminator(nn.Module):
-  ...
-  def forward(self, codebook_loss, inputs, reconstructions, optimizer_idx,
-              global_step, last_layer=None, cond=None, split="train"):
-    rec_loss = torch.abs(inputs.contiguous() - reconstructions.contiguous())
-    if self.perceptual_weight > 0:
-      p_loss = self.perceptual_loss(inputs.contiguous(), reconstructions.contiguous())
-      rec_loss = rec_loss + self.perceptual_weight * p_loss
-    else:
-      p_loss = torch.tensor([0.0])
-
-    nll_loss = rec_loss
-    #nll_loss = torch.sum(nll_loss) / nll_loss.shape[0]
-    nll_loss = torch.mean(nll_loss)
-
-    # now the GAN part
-    if optimizer_idx == 0:
-      # generator update
-      if cond is None:
-        assert not self.disc_conditional
-        logits_fake = self.discriminator(reconstructions.contiguous())
-      else:
-        assert self.disc_conditional
-        logits_fake = self.discriminator(torch.cat((reconstructions.contiguous(), cond), dim=1))
-      g_loss = -torch.mean(logits_fake)
-
-      try:
-        d_weight = self.calculate_adaptive_weight(nll_loss, g_loss, last_layer=last_layer)
-      except RuntimeError:
-        assert not self.training
-        d_weight = torch.tensor(0.0)
-
-      disc_factor = adopt_weight(self.disc_factor, global_step, threshold=self.discriminator_iter_start)
-      loss = nll_loss + d_weight * disc_factor * g_loss + self.codebook_weight * codebook_loss.mean()
-
-      log = {"{}/total_loss".format(split): loss.clone().detach().mean(),
-             "{}/quant_loss".format(split): codebook_loss.detach().mean(),
-             "{}/nll_loss".format(split): nll_loss.detach().mean(),
-             "{}/rec_loss".format(split): rec_loss.detach().mean(),
-             "{}/p_loss".format(split): p_loss.detach().mean(),
-             "{}/d_weight".format(split): d_weight.detach(),
-             "{}/disc_factor".format(split): torch.tensor(disc_factor),
-             "{}/g_loss".format(split): g_loss.detach().mean(),
-             }
-      return loss, log
-
-    if optimizer_idx == 1:
-      # second pass for discriminator update
-      if cond is None:
-        logits_real = self.discriminator(inputs.contiguous().detach())
-        logits_fake = self.discriminator(reconstructions.contiguous().detach())
-      else:
-        logits_real = self.discriminator(torch.cat((inputs.contiguous().detach(), cond), dim=1))
-        logits_fake = self.discriminator(torch.cat((reconstructions.contiguous().detach(), cond), dim=1))
-
-      disc_factor = adopt_weight(self.disc_factor, global_step, threshold=self.discriminator_iter_start)
-      d_loss = disc_factor * self.disc_loss(logits_real, logits_fake)
-
-      log = {"{}/disc_loss".format(split): d_loss.clone().detach().mean(),
-             "{}/logits_real".format(split): logits_real.detach().mean(),
-             "{}/logits_fake".format(split): logits_fake.detach().mean()
-             }
-      return d_loss, log
-```
-
-### Stochastic Intensity Map
-
-### Feedforward
-
-```python
-class VQModel(pl.LightningModule):
-  ...
-  def forward(self, input):
-      quant, diff, _ = self.encode(input)
-      dec = self.decode(quant)
-      return dec, diff
-  ...
-```
 
 ### Objectives
 
@@ -532,6 +464,817 @@ GumbelVQ(
 ```
 </details>
 
+<details>
+
+The below is the model specification of the transformer which autoregressively samples the human faces.
+
+<summary>Details</summary>
+
+```bash
+Net2NetTransformer(
+  (first_stage_model): VQModel(
+    (encoder): Encoder(
+      (conv_in): Conv2d(3, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (down): ModuleList(
+        (0): Module(
+          (block): ModuleList(
+            (0): ResnetBlock(
+              (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+            (1): ResnetBlock(
+              (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+          )
+          (attn): ModuleList()
+          (downsample): Downsample(
+            (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(2, 2))
+          )
+        )
+        (1): Module(
+          (block): ModuleList(
+            (0): ResnetBlock(
+              (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+            (1): ResnetBlock(
+              (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+          )
+          (attn): ModuleList()
+          (downsample): Downsample(
+            (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(2, 2))
+          )
+        )
+        (2): Module(
+          (block): ModuleList(
+            (0): ResnetBlock(
+              (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (conv1): Conv2d(128, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (nin_shortcut): Conv2d(128, 256, kernel_size=(1, 1), stride=(1, 1))
+            )
+            (1): ResnetBlock(
+              (norm1): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+          )
+          (attn): ModuleList()
+          (downsample): Downsample(
+            (conv): Conv2d(256, 256, kernel_size=(3, 3), stride=(2, 2))
+          )
+        )
+        (3): Module(
+          (block): ModuleList(
+            (0): ResnetBlock(
+              (norm1): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+            (1): ResnetBlock(
+              (norm1): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+          )
+          (attn): ModuleList()
+          (downsample): Downsample(
+            (conv): Conv2d(256, 256, kernel_size=(3, 3), stride=(2, 2))
+          )
+        )
+        (4): Module(
+          (block): ModuleList(
+            (0): ResnetBlock(
+              (norm1): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (conv1): Conv2d(256, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (nin_shortcut): Conv2d(256, 512, kernel_size=(1, 1), stride=(1, 1))
+            )
+            (1): ResnetBlock(
+              (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+              (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+          )
+          (attn): ModuleList(
+            (0): AttnBlock(
+              (norm): GroupNorm(32, 512, eps=1e-06, affine=True)
+              (q): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+              (k): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+              (v): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+              (proj_out): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            )
+            (1): AttnBlock(
+              (norm): GroupNorm(32, 512, eps=1e-06, affine=True)
+              (q): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+              (k): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+              (v): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+              (proj_out): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            )
+          )
+        )
+      )
+      (mid): Module(
+        (block_1): ResnetBlock(
+          (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+          (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+          (dropout): Dropout(p=0.0, inplace=False)
+          (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        )
+        (attn_1): AttnBlock(
+          (norm): GroupNorm(32, 512, eps=1e-06, affine=True)
+          (q): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+          (k): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+          (v): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+          (proj_out): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+        )
+        (block_2): ResnetBlock(
+          (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+          (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+          (dropout): Dropout(p=0.0, inplace=False)
+          (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        )
+      )
+      (norm_out): GroupNorm(32, 512, eps=1e-06, affine=True)
+      (conv_out): Conv2d(512, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+    )
+    (decoder): Decoder(
+      (conv_in): Conv2d(256, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (mid): Module(
+        (block_1): ResnetBlock(
+          (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+          (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+          (dropout): Dropout(p=0.0, inplace=False)
+          (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        )
+        (attn_1): AttnBlock(
+          (norm): GroupNorm(32, 512, eps=1e-06, affine=True)
+          (q): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+          (k): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+          (v): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+          (proj_out): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+        )
+        (block_2): ResnetBlock(
+          (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+          (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+          (dropout): Dropout(p=0.0, inplace=False)
+          (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+        )
+      )
+      (up): ModuleList(
+        (0): Module(
+          (block): ModuleList(
+            (0): ResnetBlock(
+              (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+            (1): ResnetBlock(
+              (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+            (2): ResnetBlock(
+              (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+          )
+          (attn): ModuleList()
+        )
+        (1): Module(
+          (block): ModuleList(
+            (0): ResnetBlock(
+              (norm1): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (conv1): Conv2d(256, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (nin_shortcut): Conv2d(256, 128, kernel_size=(1, 1), stride=(1, 1))
+            )
+            (1): ResnetBlock(
+              (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+            (2): ResnetBlock(
+              (norm1): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 128, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+          )
+          (attn): ModuleList()
+          (upsample): Upsample(
+            (conv): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+        )
+        (2): Module(
+          (block): ModuleList(
+            (0): ResnetBlock(
+              (norm1): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+            (1): ResnetBlock(
+              (norm1): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+            (2): ResnetBlock(
+              (norm1): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+          )
+          (attn): ModuleList()
+          (upsample): Upsample(
+            (conv): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+        )
+        (3): Module(
+          (block): ModuleList(
+            (0): ResnetBlock(
+              (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+              (conv1): Conv2d(512, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (nin_shortcut): Conv2d(512, 256, kernel_size=(1, 1), stride=(1, 1))
+            )
+            (1): ResnetBlock(
+              (norm1): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+            (2): ResnetBlock(
+              (norm1): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 256, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+          )
+          (attn): ModuleList()
+          (upsample): Upsample(
+            (conv): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+        )
+        (4): Module(
+          (block): ModuleList(
+            (0): ResnetBlock(
+              (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+              (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+            (1): ResnetBlock(
+              (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+              (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+            (2): ResnetBlock(
+              (norm1): GroupNorm(32, 512, eps=1e-06, affine=True)
+              (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+              (norm2): GroupNorm(32, 512, eps=1e-06, affine=True)
+              (dropout): Dropout(p=0.0, inplace=False)
+              (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+            )
+          )
+          (attn): ModuleList(
+            (0): AttnBlock(
+              (norm): GroupNorm(32, 512, eps=1e-06, affine=True)
+              (q): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+              (k): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+              (v): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+              (proj_out): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            )
+            (1): AttnBlock(
+              (norm): GroupNorm(32, 512, eps=1e-06, affine=True)
+              (q): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+              (k): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+              (v): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+              (proj_out): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            )
+            (2): AttnBlock(
+              (norm): GroupNorm(32, 512, eps=1e-06, affine=True)
+              (q): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+              (k): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+              (v): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+              (proj_out): Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1))
+            )
+          )
+          (upsample): Upsample(
+            (conv): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+          )
+        )
+      )
+      (norm_out): GroupNorm(32, 128, eps=1e-06, affine=True)
+      (conv_out): Conv2d(128, 3, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+    )
+    (loss): DummyLoss()
+    (quantize): VectorQuantizer2(
+      (embedding): Embedding(1024, 256)
+    )
+    (quant_conv): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1))
+    (post_quant_conv): Conv2d(256, 256, kernel_size=(1, 1), stride=(1, 1))
+  )
+  (cond_stage_model): SOSProvider()
+  (permuter): Identity()
+  (transformer): GPT(
+    (tok_emb): Embedding(1024, 1664)
+    (drop): Dropout(p=0.0, inplace=False)
+    (blocks): Sequential(
+      (0): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (1): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (2): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (3): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (4): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (5): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (6): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (7): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (8): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (9): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (10): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (11): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (12): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (13): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (14): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (15): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (16): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (17): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (18): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (19): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (20): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (21): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (22): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+      (23): Block(
+        (ln1): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (ln2): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+        (attn): CausalSelfAttention(
+          (key): Linear(in_features=1664, out_features=1664, bias=True)
+          (query): Linear(in_features=1664, out_features=1664, bias=True)
+          (value): Linear(in_features=1664, out_features=1664, bias=True)
+          (attn_drop): Dropout(p=0.0, inplace=False)
+          (resid_drop): Dropout(p=0.0, inplace=False)
+          (proj): Linear(in_features=1664, out_features=1664, bias=True)
+        )
+        (mlp): Sequential(
+          (0): Linear(in_features=1664, out_features=6656, bias=True)
+          (1): GELU()
+          (2): Linear(in_features=6656, out_features=1664, bias=True)
+          (3): Dropout(p=0.0, inplace=False)
+        )
+      )
+    )
+    (ln_f): LayerNorm((1664,), eps=1e-05, elementwise_affine=True)
+    (head): Linear(in_features=1664, out_features=1024, bias=False)
+  )
+)
+```
+</details>
 
 ## Sampling
 

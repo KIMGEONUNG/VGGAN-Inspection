@@ -47,9 +47,11 @@ def sample_unconditional(model, batch_size, steps=256, temperature=None, top_k=N
     assert model.be_unconditional, 'Expecting an unconditional model.'
     c_indices = repeat(torch.tensor([model.sos_token]), '1 -> b 1', b=batch_size).to(model.device)  # sos token
     t1 = time.time()
+
+    # This is the autoregressive procedure
     index_sample = sample_with_past(c_indices, model.transformer, steps=steps,
                                     sample_logits=True, top_k=top_k, callback=callback,
-                                    temperature=temperature, top_p=top_p)
+                                    temperature=temperature, top_p=top_p)  # [batch, flatten spatial], ex [25,16x16]
     if verbose_time:
         sampling_time = time.time() - t1
         print(f"Full sampling takes about {sampling_time:.2f} seconds.")

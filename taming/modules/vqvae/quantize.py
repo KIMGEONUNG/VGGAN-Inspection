@@ -226,7 +226,7 @@ class VectorQuantizer2(nn.Module):
         self.beta = beta
         self.legacy = legacy
 
-        self.embedding = nn.Embedding(self.n_e, self.e_dim)
+        self.embedding = nn.Embedding(self.n_e, self.e_dim)  # ???
         self.embedding.weight.data.uniform_(-1.0 / self.n_e, 1.0 / self.n_e)
 
         self.remap = remap
