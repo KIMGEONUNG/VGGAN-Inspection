@@ -17,10 +17,17 @@ In this work, Let's inspect the details of VQGAN and get some insights to reprod
 - Reproduce 2nd stage training codes for Chroma-VQGAN 
   - Understand feedforward codes <span style="color:green">(Done)</span>
   - Understand training codes 
-    - Write vimspector configuration to investigate the training process <span style="color:red">(WIP)</span>
-  - Implement training codes 
-- Add stochastic grayscale shift to 1st stage <span style="color:gray">(Undo)</span>
-  - Implement several types of conversion 
+    - Make the training code working <span style="color:green">(Done)</span>
+      - Becuase the predefined configuration of coco dataset has too many transformer layers to conduct a training with single RTX3090, we should reduce the number of layers to 5.
+    - Implement training codes <span style="color:red">(WIP)</span>
+      - As the training example includes conditional input, it seems better to preserve original structure and to implant conditional code.
+      - Understand BERT-style scheme
+      - Add MASK TOKEN
+      - Understand spatial concatenate of $f_g$ and $f_h$
+      - Understand Hint-point scheduling
+- Add arbitary intensity generation to 1st stage 
+  - Implement arbitrary intensity generation <span style="color:green">(Done)</span>
+  - Add configuration and training code <span style="color:red">(WIP)</span>
 - Connect UI to model <span style="color:gray">(Undo)</span>
 
 <figure>
@@ -32,6 +39,27 @@ In this work, Let's inspect the details of VQGAN and get some insights to reprod
 <img src="assets/chroma-vqgan.png" alt="fail" style="width:100%">
 <figcaption align = "center"><b>Fig.2 UniColor</b></figcaption>
 </figure>
+
+## Stochastic Intensity Conversion  
+
+Consider a natural image $I_{RGB} = [R, G, B] \in [0,1]^3$.
+To evade non-negativity, the rearraged image as
+$$
+ I^{*}_{RGB}=2I_{RGB}-1
+$$
+where $I^{*}_{RGB} = [R^*,G^*,B^*] \in [-1,1]^3$.
+To produce arbitrary intensities with single channel, the forumlation is as 
+
+$$
+ I^{*}_{g} = x_1 R^* + x_2 G^* + x_3 B^*,\quad \text{where}~x \sim \mathcal{N(0, 1)}.
+$$
+
+Before restored to original image domain of $[0,1]^3$, The hyperbolic tangent is used to fix the low contrast of $I^{*}_{g}$.
+Fianlly, the formulation is as
+
+$$
+ I_{g} = \frac{1 + tanh(I^{*}_{g})}{2}
+$$
 
 ## Stage2 Structure
 
@@ -1324,8 +1352,8 @@ python main.py --base configs/custom_vqgan.yaml -t True --gpus 0,
 ### Training for 2nd Stage
 
 ```sh
-python main.py --base configs/coco_scene_images_transformer.yaml -t True --gpus 0
-python main.py --base configs/open_images_scene_images_transformer.yaml -t True --gpus 0
+python main.py --base configs/coco_scene_images_transformer.yaml -t True --gpus 0,
+python main.py --base configs/open_images_scene_images_transformer.yaml -t True --gpus 0,
 ```
 
 

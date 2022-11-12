@@ -8,7 +8,7 @@ model:
       params:
         vocab_size: 8192
         block_size: 348  # = 256 + 92 = dim(vqgan_latent_space,16x16) + dim(conditional_builder.embedding_dim)
-        n_layer: 40
+        n_layer: 5 
         n_head: 16
         n_embd: 1408
         embd_pdrop: 0.1
