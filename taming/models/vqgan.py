@@ -21,6 +21,7 @@ class ChromaVQ(pl.LightningModule):
       lossconfig,
       n_embed,
       embed_dim,
+      use_arbitrary_gray=False,
       ckpt_path=None,
       ignore_keys=[],
       image_key="image",
@@ -49,10 +50,17 @@ class ChromaVQ(pl.LightningModule):
     self.decoder = Decoder(**decoder_config)
 
     self.loss = instantiate_from_config(lossconfig)
+    self.use_arbitrary_gray = use_arbitrary_gray
 
     if ckpt_path is not None:
       self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
     self.image_key = image_key
+
+  @torch.no_grad()
+  def gen_arbitrary_gray(self, x):
+    x = F.conv2d(x, torch.randn(1, 3, 1, 1).to(x.device))
+    x = torch.tanh(x)
+    return x
 
   def init_from_ckpt(self, path, ignore_keys=list()):  # For retrain
     sd = torch.load(path, map_location="cpu")["state_dict"]
@@ -68,6 +76,8 @@ class ChromaVQ(pl.LightningModule):
   def encode(self, x):
     # Encode gray
     x_g = self.togray(x).detach()
+    if self.use_arbitrary_gray:
+      x_g = self.gen_arbitrary_gray(x).detach()
     h_g = self.encoder_gray(x_g)
 
     # Encode RGB

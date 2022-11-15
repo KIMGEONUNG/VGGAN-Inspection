@@ -15,30 +15,40 @@ In this work, Let's inspect the details of VQGAN and get some insights to reprod
 
 - Reproduce 1st stage training codes for Chroma-VQGAN <span style="color:green">(Done)</span>
 - Reproduce 2nd stage training codes for Chroma-VQGAN 
-  - Understand feedforward codes <span style="color:green">(Done)</span>
-  - Understand training codes 
-    - Make the training code working <span style="color:green">(Done)</span>
-      - Becuase the predefined configuration of coco dataset has too many transformer layers to conduct a training with single RTX3090, we should reduce the number of layers to 5.
-    - Implement training codes <span style="color:red">(WIP)</span>
+  - Implement training codes 
+    - Implement Data loading <span style="color:red">(WIP)</span>
+    - Implement Hybrid-Transformer <span style="color:red">(WIP)</span>
       - As the training example includes conditional input, it seems better to preserve original structure and to implant conditional code.
       - Understand BERT-style scheme
       - Add MASK TOKEN
       - Understand spatial concatenate of $f_g$ and $f_h$
       - Understand Hint-point scheduling
+    - Implement hint sampler <span style="color:red">(WIP)</span>
 - Add arbitary intensity generation to 1st stage 
   - Implement arbitrary intensity generation <span style="color:green">(Done)</span>
   - Add configuration and training code <span style="color:red">(WIP)</span>
 - Connect UI to model <span style="color:gray">(Undo)</span>
 
-<figure>
-<img src="assets/teaser.png" alt="fail" style="width:100%">
-<figcaption align = "center"><b>Fig.1 VGGAN</b></figcaption>
-</figure>
+<!-- <figure> -->
+<!-- <img src="assets/teaser.png" alt="fail" style="width:100%"> -->
+<!-- <figcaption align = "center"><b>Fig.1 VGGAN</b></figcaption> -->
+<!-- </figure> -->
 
 <figure>
 <img src="assets/chroma-vqgan.png" alt="fail" style="width:100%">
-<figcaption align = "center"><b>Fig.2 UniColor</b></figcaption>
+<figcaption align = "center"><b>Fig.2 UniColor framework overview</b></figcaption>
 </figure>
+
+## Fixed-luminance Assumption in Colorization Problem
+
+Colorization problem has been defined as a mapping from a luminance map with optional guidances to two-channel chrominance, i.e., the luminance map is always fixed at the final results.
+However, this fixed-luminance assumption is far from the practical colorization scenario because there are many use cases which require to modulate luminance map, such as conversion from a black suit to a white one.
+Unfortunately, the luminance modification is not trivial due to the challenges as follows.
+- To make low intensity brighter can produces some artifacts because the low intensity regions usually has degraded fine-details.
+some additional restoration techniques can be required for color editing
+- The exact region which should be change with respect to luminance is ambiguous
+- <span style="color:red">One more find!</span>
+
 
 ## Stochastic Intensity Conversion  
 
