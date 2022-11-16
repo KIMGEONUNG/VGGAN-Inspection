@@ -13,7 +13,12 @@ In this work, Let's inspect the details of VQGAN and get some insights to reprod
 ## Reproduce Memo
 <a id="reproduce-memo"></a>
 
-- Reproduce 1st stage training codes for Chroma-VQGAN <span style="color:green">(Done)</span>
+- BugFix
+  - <span style="color:red">Move the codes of arbatrary grayscale conversion to the dataloader</span>
+- Refactoring
+  - Create a file only for Chroma-VQ class <span style="color:gray">(Undo)</span>
+- Experiments on Chroma-VQ 1st stage 
+  - Multiple inferences on the arbitrary grayscales which are converted from a single color image. <span style="color:gray">(Undo)</span>
 - Reproduce 2nd stage training codes for Chroma-VQGAN 
   - Implement training codes 
     - Implement Data loading <span style="color:red">(WIP)</span>
@@ -24,9 +29,7 @@ In this work, Let's inspect the details of VQGAN and get some insights to reprod
       - Understand spatial concatenate of $f_g$ and $f_h$
       - Understand Hint-point scheduling
     - Implement hint sampler <span style="color:red">(WIP)</span>
-- Add arbitary intensity generation to 1st stage 
-  - Implement arbitrary intensity generation <span style="color:green">(Done)</span>
-  - Add configuration and training code <span style="color:red">(WIP)</span>
+- Add arbitary intensity generation to 1st stage <span style="color:green">(Done)</span>
 - Connect UI to model <span style="color:gray">(Undo)</span>
 
 <!-- <figure> -->
