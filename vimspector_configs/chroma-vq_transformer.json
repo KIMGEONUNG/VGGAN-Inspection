@@ -7,8 +7,8 @@
                   "type": "python",                                                       
                   "cwd": "${workspaceRoot}",                                              
                   "program": "main.py",
-                  "args":["--base", "configs/chroma_vqgan_transformer.yaml", "-t", "True", "--gpus", "0,"],
-                  "stopOnEntry": false,                                                   
+                  "args":["--base", "configs/chroma_vqgan.yaml", "-t", "True", "--gpus", "0,"],
+                  "stopOnEntry": true,                                                   
                   "console": "integratedTerminal",
                   "env": {"FOO": "123"},
                   "justMyCode": true

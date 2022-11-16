@@ -1,62 +1,20 @@
 from torch.utils.data import Dataset
-import torchvision.transforms as transforms
-from torchvision.transforms import Grayscale, ToTensor, RandomCrop, Resize
-from PIL import Image
-
-# class ImagePaths(Dataset):
-#
-#   def __init__(self, paths, size=None, labels=None):
-#     self.size = size
-#
-#     self.labels = dict() if labels is None else labels
-#     self.labels["file_path_"] = paths
-#     self._length = len(paths)
-#
-#     self.togray = Grayscale()
-#     self.totensor = ToTensor()
-#     self.preprocessor = transforms.Compose([Resize(size), RandomCrop(size)])
-#
-#   def __len__(self):
-#     return self._length
-#
-#   def preprocess_image(self, image_path):
-#     image = Image.open(image_path)
-#     if not image.mode == "RGB":
-#       image = image.convert("RGB")
-#     image = ToTensor()(image)
-#     image = self.preprocessor(image)
-#     image = (image * 2) - 1
-#     return image
-#
-#   def preprocess_gray(self, image_path):
-#     image = Image.open(image_path)
-#     if not image.mode == "RGB":
-#       image = image.convert("RGB")
-#     image = ToTensor()(image)
-#     image = self.preprocessor(image)
-#     image = (image * 2) - 1
-#     image = self.togray(image)
-#     return image
-#
-#   def __getitem__(self, i):
-#     example = dict()
-#     example["image"] = self.preprocess_image(self.labels["file_path_"][i])
-#     example["gray"] = self.preprocess_image(self.labels["file_path_"][i])
-#     # example["gray"] = self.preprocess_gray(self.labels["file_path_"][i])
-#     # print(example["image"].shape, example["gray"].shape)
-#     for k in self.labels:
-#       example[k] = self.labels[k][i]
-#     return example
-
 import numpy as np
 import albumentations
+from PIL import Image
 
 
 class ImagePaths(Dataset):
 
-  def __init__(self, paths, size=None, random_crop=False, labels=None):
+  def __init__(self,
+               paths,
+               size=None,
+               random_crop=False,
+               labels=None,
+               use_arbitrary_gray=False):
     self.size = size
     self.random_crop = random_crop
+    self.use_arbitrary_gray = use_arbitrary_gray
 
     self.labels = dict() if labels is None else labels
     self.labels["file_path_"] = paths
@@ -74,8 +32,19 @@ class ImagePaths(Dataset):
     else:
       self.preprocessor = lambda **kwargs: kwargs
 
+    if self.use_arbitrary_gray:
+      self.togray = self.convert2gray
+    else:
+      raise NotImplementedError()
+
   def __len__(self):
     return self._length
+
+  def convert2gray(self, x):
+    w = np.random.randn(3)
+    x = (x @ w)[..., None]
+    x = np.tanh(x).astype(np.float32)
+    return x
 
   def preprocess_image(self, image_path):
     image = Image.open(image_path)
@@ -88,8 +57,9 @@ class ImagePaths(Dataset):
 
   def __getitem__(self, i):
     example = dict()
-    example["image"] = self.preprocess_image(self.labels["file_path_"][i])
-    example["gray"] = self.preprocess_image(self.labels["file_path_"][i])
+    image = self.preprocess_image(self.labels["file_path_"][i])
+    example["image"] = image
+    example["gray"] = self.togray(image)
     for k in self.labels:
       example[k] = self.labels[k][i]
     return example
@@ -111,17 +81,21 @@ class ChromaBase(Dataset):
 
 class ChromaTrain(ChromaBase):
 
-  def __init__(self, size, training_images_list_file):
+  def __init__(self, size, training_images_list_file, use_arbitrary_gray):
     super().__init__()
     with open(training_images_list_file, "r") as f:
       paths = f.read().splitlines()
-    self.data = ImagePaths(paths=paths, size=size)
+    self.data = ImagePaths(paths=paths,
+                           size=size,
+                           use_arbitrary_gray=use_arbitrary_gray)
 
 
 class ChromaTest(ChromaBase):
 
-  def __init__(self, size, test_images_list_file):
+  def __init__(self, size, test_images_list_file, use_arbitrary_gray):
     super().__init__()
     with open(test_images_list_file, "r") as f:
       paths = f.read().splitlines()
-    self.data = ImagePaths(paths=paths, size=size)
+    self.data = ImagePaths(paths=paths,
+                           size=size,
+                           use_arbitrary_gray=use_arbitrary_gray)

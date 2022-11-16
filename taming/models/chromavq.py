@@ -21,17 +21,17 @@ class ChromaVQ(pl.LightningModule):
       lossconfig,
       n_embed,
       embed_dim,
-      use_arbitrary_gray=False,
       ckpt_path=None,
       ignore_keys=[],
       image_key="image",
+      gray_key="gray",
       colorize_nlabels=None,
       remap=None,
       sane_index_shape=False,  # tell vector quantizer to return indices as bhw
   ):
     super().__init__()
     self.image_key = image_key
-    self.togray = Grayscale()
+    self.gray_key = gray_key
 
     # Models
     self.encoder = Encoder(**encoder_config)
@@ -50,17 +50,10 @@ class ChromaVQ(pl.LightningModule):
     self.decoder = Decoder(**decoder_config)
 
     self.loss = instantiate_from_config(lossconfig)
-    self.use_arbitrary_gray = use_arbitrary_gray
 
     if ckpt_path is not None:
       self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
     self.image_key = image_key
-
-  @torch.no_grad()
-  def gen_arbitrary_gray(self, x):
-    x = F.conv2d(x, torch.randn(1, 3, 1, 1).to(x.device))
-    x = torch.tanh(x)
-    return x
 
   def init_from_ckpt(self, path, ignore_keys=list()):  # For retrain
     sd = torch.load(path, map_location="cpu")["state_dict"]
@@ -73,25 +66,10 @@ class ChromaVQ(pl.LightningModule):
     self.load_state_dict(sd, strict=False)
     print(f"Restored from {path}")
 
-  def encode(self, x):
-    # Encode gray
-    x_g = self.togray(x).detach()
-
-    # THIS CODE MUST BE MOVED TO UPPER CALLSTACK.
-    # SPECIFICALLY, DATALOADER SHOULD HANDLE THIS ONE.
-    # OTHERWISE, THIS DISTORTS GRAYSCALE IMAGE IN INFERENCE TIME.
-    if self.use_arbitrary_gray: 
-      x_g = self.gen_arbitrary_gray(x).detach()
-
-    h_g = self.encoder_gray(x_g)
-
-    # Encode RGB
-    h = self.encoder(x)
+  def encode(self, x_rgb):
+    h = self.encoder(x_rgb)
     h = self.quant_conv(h)
     quant, emb_loss, info = self.quantize(h)
-
-    # Concat RGB and gray
-    quant = torch.cat([quant, h_g], dim=-3)
 
     return quant, emb_loss, info
 
@@ -105,13 +83,18 @@ class ChromaVQ(pl.LightningModule):
     dec = self.decode(quant_b)
     return dec
 
-  def forward(self, input):
-    quant, diff, _ = self.encode(input)
-    dec = self.decode(quant)
+  def forward(self, x, x_g):
+    quant, diff, _ = self.encode(x)
+    feat_g = self.encoder_gray(x_g)
+
+    quant_cat = torch.cat([quant, feat_g], dim=-3)
+
+    dec = self.decode(quant_cat)
     return dec, diff
 
   def get_input(self, batch, k):
     x = batch[k]
+
     if len(x.shape) == 3:
       x = x[..., None]
     x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
@@ -121,7 +104,8 @@ class ChromaVQ(pl.LightningModule):
     # If you use multiple optimizers, training_step() will have an additional optimizer_idx parameter.
     # ref: https://pytorch-lightning.readthedocs.io/en/stable/common/lightning_module.html
     x = self.get_input(batch, self.image_key)
-    xrec, qloss = self(x)
+    x_g = self.get_input(batch, self.gray_key)
+    xrec, qloss = self(x, x_g)
 
     if optimizer_idx == 0:
       # autoencode
@@ -170,7 +154,9 @@ class ChromaVQ(pl.LightningModule):
 
   def validation_step(self, batch, batch_idx):
     x = self.get_input(batch, self.image_key)
-    xrec, qloss = self(x)
+    x_g = self.get_input(batch, self.gray_key)
+
+    xrec, qloss = self(x, x_g)
     aeloss, log_dict_ae = self.loss(qloss,
                                     x,
                                     xrec,
@@ -225,8 +211,12 @@ class ChromaVQ(pl.LightningModule):
   def log_images(self, batch, **kwargs):  #  callback
     log = dict()
     x = self.get_input(batch, self.image_key)
-    x = x.to(self.device)
-    xrec, _ = self(x)
+    x_g = self.get_input(batch, self.gray_key)
+
+    x, x_g = x.to(self.device), x_g.to(self.device)
+
+    xrec, _ = self(x, x_g)
+
     if x.shape[1] > 3:
       # colorize with random projection
       assert xrec.shape[1] > 3
@@ -235,5 +225,3 @@ class ChromaVQ(pl.LightningModule):
     log["inputs"] = x
     log["reconstructions"] = xrec
     return log
-
-
