@@ -1,6 +1,6 @@
 model:
   base_learning_rate: 4.5e-6
-  target: taming.models.vqgan.ChromaVQ
+  target: taming.models.chromavq.ChromaVQ
   params:
     embed_dim: 256
     n_embed: 2048

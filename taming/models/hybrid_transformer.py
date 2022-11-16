@@ -36,7 +36,7 @@ class HybridTransformer(pl.LightningModule):
     self.first_stage_key = first_stage_key
     self.cond_stage_key = cond_stage_key
     self.init_first_stage_from_ckpt(first_stage_config)
-    self.init_cond_stage_from_ckpt(cond_stage_config)
+    # self.init_cond_stage_from_ckpt(cond_stage_config)
     if permuter_config is None:
       permuter_config = {
           "target": "taming.modules.transformer.permuter.Identity"
@@ -46,7 +46,7 @@ class HybridTransformer(pl.LightningModule):
 
     if ckpt_path is not None:
       self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
-    self.downsample_cond_size = downsample_cond_size
+    # self.downsample_cond_size = downsample_cond_size
     self.pkeep = pkeep
 
   def init_from_ckpt(self, path, ignore_keys=list()):
@@ -65,22 +65,22 @@ class HybridTransformer(pl.LightningModule):
     model.train = disabled_train
     self.first_stage_model = model
 
-  def init_cond_stage_from_ckpt(self, config):
-    if config == "__is_first_stage__":
-      print("Using first stage also as cond stage.")
-      self.cond_stage_model = self.first_stage_model
-    elif config == "__is_unconditional__" or self.be_unconditional:
-      print(
-          f"Using no cond stage. Assuming the training is intended to be unconditional. "
-          f"Prepending {self.sos_token} as a sos token.")
-      self.be_unconditional = True
-      self.cond_stage_key = self.first_stage_key
-      self.cond_stage_model = SOSProvider(self.sos_token)
-    else:
-      model = instantiate_from_config(config)
-      model = model.eval()
-      model.train = disabled_train
-      self.cond_stage_model = model
+  # def init_cond_stage_from_ckpt(self, config):
+  #   if config == "__is_first_stage__":
+  #     print("Using first stage also as cond stage.")
+  #     self.cond_stage_model = self.first_stage_model
+  #   elif config == "__is_unconditional__" or self.be_unconditional:
+  #     print(
+  #         f"Using no cond stage. Assuming the training is intended to be unconditional. "
+  #         f"Prepending {self.sos_token} as a sos token.")
+  #     self.be_unconditional = True
+  #     self.cond_stage_key = self.first_stage_key
+  #     self.cond_stage_model = SOSProvider(self.sos_token)
+  #   else:
+  #     model = instantiate_from_config(config)
+  #     model = model.eval()
+  #     model.train = disabled_train
+  #     self.cond_stage_model = model
 
   def forward(self, x, c):
     # one step to produce the logits
@@ -187,14 +187,7 @@ class HybridTransformer(pl.LightningModule):
 
   @torch.no_grad()
   def encode_to_c(self, c):
-    if self.downsample_cond_size > -1:
-      c = F.interpolate(c,
-                        size=(self.downsample_cond_size,
-                              self.downsample_cond_size))
-    quant_c, _, [_, _, indices] = self.cond_stage_model.encode(c)
-    if len(indices.shape) > 2:
-      indices = indices.view(c.shape[0], -1)
-    return quant_c, indices
+    return c
 
   @torch.no_grad()
   def decode_to_img(self, index, zshape):
@@ -334,6 +327,7 @@ class HybridTransformer(pl.LightningModule):
              on_epoch=True)
     return loss
 
+  # The function is also invoked for "Validation sanity check"
   def validation_step(self, batch, batch_idx):
     loss = self.shared_step(batch, batch_idx)
     self.log("val/loss",

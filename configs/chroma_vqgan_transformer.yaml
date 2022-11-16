@@ -2,6 +2,7 @@ model:
   base_learning_rate: 0.0625
   target: taming.models.hybrid_transformer.HybridTransformer
   params:
+    cond_stage_key: gray
     cond_stage_config: __is_unconditional__
     first_stage_key: image
     transformer_config:
@@ -12,15 +13,51 @@ model:
         n_layer: 24
         n_head: 16
         n_embd: 1664
+    # cond_stage_config:
+    #   target: taming.models.dummy_cond_stage.DummyCondStage
+    #   params:
+    #     conditional_key: gray
     first_stage_config:
-      target: taming.models.vqgan.VQModel
+      target: taming.models.chromavq.ChromaVQ
       params:
-        ckpt_path: ./logs/2022-11-12T16-39-59_custom_vqgan/checkpoints/last.ckpt 
+        ckpt_path: ./logs/2022-11-15T12-39-40_chroma_vqgan_mark/checkpoints/last.ckpt 
         embed_dim: 256
-        n_embed: 8192
-        ddconfig:
+        n_embed: 2048
+        use_arbitrary_gray: true
+        encoder_config:
           double_z: false
           z_channels: 256
+          resolution: 256
+          in_channels: 3
+          ch: 128
+          ch_mult:
+          - 1
+          - 1
+          - 2
+          - 2
+          - 4
+          num_res_blocks: 2
+          attn_resolutions:
+          - 16
+          dropout: 0.0
+        encoder_gray_config:
+          double_z: false
+          z_channels: 256
+          resolution: 256
+          in_channels: 1
+          ch: 128
+          ch_mult:
+          - 1
+          - 1
+          - 2
+          - 2
+          - 4
+          num_res_blocks: 2
+          attn_resolutions:
+          - 16
+          dropout: 0.0
+        decoder_config:
+          z_channels: 512
           resolution: 256
           in_channels: 3
           out_ch: 3
@@ -40,15 +77,15 @@ model:
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 6
+    batch_size: 2
     num_workers: 8
     train:
-      target: taming.data.custom.CustomTrain
+      target: taming.data.chroma.ChromaTrain
       params:
         training_images_list_file: datasets/train.txt
         size: 256
     validation:
-      target: taming.data.custom.CustomTest
+      target: taming.data.chroma.ChromaTest
       params:
         test_images_list_file: datasets/test.txt
         size: 256
