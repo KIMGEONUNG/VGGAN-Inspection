@@ -6,13 +6,13 @@ model:
     cond_stage_config: __is_unconditional__
     first_stage_key: image
     transformer_config:
-      target: taming.modules.transformer.mingpt.GPT
+      target: taming.modules.transformer.chromagpt.GPT
       params:
-        vocab_size: 1024
-        block_size: 256
+        vocab_size: 2048 #  the number of codes
+        block_size: 512
         n_layer: 24
         n_head: 16
-        n_embd: 1664
+        n_embd: 256 # full model is 512
     # cond_stage_config:
     #   target: taming.models.dummy_cond_stage.DummyCondStage
     #   params:
@@ -23,7 +23,6 @@ model:
         ckpt_path: ./logs/2022-11-15T12-39-40_chroma_vqgan_mark/checkpoints/last.ckpt 
         embed_dim: 256
         n_embed: 2048
-        use_arbitrary_gray: true
         encoder_config:
           double_z: false
           z_channels: 256
@@ -82,10 +81,12 @@ data:
     train:
       target: taming.data.chroma.ChromaTrain
       params:
+        use_arbitrary_gray: True
         training_images_list_file: datasets/train.txt
         size: 256
     validation:
       target: taming.data.chroma.ChromaTest
       params:
+        use_arbitrary_gray: True
         test_images_list_file: datasets/test.txt
         size: 256
