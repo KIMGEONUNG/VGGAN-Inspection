@@ -1,5 +1,6 @@
 import os, math
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
 
@@ -44,6 +45,16 @@ class HybridTransformer(pl.LightningModule):
     self.permuter = instantiate_from_config(config=permuter_config)
     self.transformer = instantiate_from_config(config=transformer_config)
 
+    dim_z_encoder_gray = first_stage_config["params"]["encoder_gray_config"][
+        "z_channels"]
+
+    self.linear4luma_g = nn.Conv2d(dim_z_encoder_gray, dim_z_encoder_gray, kernel_size=1)
+
+    # dim_z_encoder = first_stage_config["params"]["encoder_config"][
+    #     "z_channels"]
+    # self.linear4chroma_g = nn.Conv2d(dim_z_encoder, dim_z_encoder, kernel_size=1)
+    # self.linear4rgb = nn.Linear(3, dim_z_encoder, bias=False)
+
     if ckpt_path is not None:
       self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
     # self.downsample_cond_size = downsample_cond_size
@@ -65,47 +76,41 @@ class HybridTransformer(pl.LightningModule):
     model.train = disabled_train
     self.first_stage_model = model
 
-  # def init_cond_stage_from_ckpt(self, config):
-  #   if config == "__is_first_stage__":
-  #     print("Using first stage also as cond stage.")
-  #     self.cond_stage_model = self.first_stage_model
-  #   elif config == "__is_unconditional__" or self.be_unconditional:
-  #     print(
-  #         f"Using no cond stage. Assuming the training is intended to be unconditional. "
-  #         f"Prepending {self.sos_token} as a sos token.")
-  #     self.be_unconditional = True
-  #     self.cond_stage_key = self.first_stage_key
-  #     self.cond_stage_model = SOSProvider(self.sos_token)
-  #   else:
-  #     model = instantiate_from_config(config)
-  #     model = model.eval()
-  #     model.train = disabled_train
-  #     self.cond_stage_model = model
-
-  def forward(self, x, c):
+  def forward(self, x, x_g):
     # one step to produce the logits
     _, z_indices = self.encode_to_z(x)
-    _, c_indices = self.encode_to_c(c)
+    feat_g = self.first_stage_model.encoder_gray(x_g)
+    feat_g = self.linear4luma_g(feat_g)
+    feat_g = feat_g.view(list(feat_g.shape[:-2]) + [-1])  # flatten
+    feat_g = feat_g.transpose(-1, -2)
 
-    if self.training and self.pkeep < 1.0:
+    if self.training and self.pkeep < 1.0:  # maybe percentage keep?
       mask = torch.bernoulli(
           self.pkeep * torch.ones(z_indices.shape, device=z_indices.device))
+
       mask = mask.round().to(dtype=torch.int64)
+
       r_indices = torch.randint_like(z_indices,
                                      self.transformer.config.vocab_size)
+
       a_indices = mask * z_indices + (1 - mask) * r_indices
     else:
       a_indices = z_indices
-
-    cz_indices = torch.cat((c_indices, a_indices), dim=1)
 
     # target includes all sequence elements (no need to handle first one
     # differently because we are conditioning)
     target = z_indices
     # make the prediction
-    logits, _ = self.transformer(cz_indices[:, :-1])  # Why -1 ???
+    # logits, _ = self.transformer(cz_indices[:, :-1])  # Why -1 ???
+    logits, _ = self.transformer(a_indices[:, :-1], embeddings=feat_g)
+
     # cut off conditioning outputs - output i corresponds to p(z_i | z_{<i}, c)
-    logits = logits[:, c_indices.shape[1] - 1:]
+    logits = logits[:, feat_g.shape[1] - 1:]
+
+    print()
+    print(logits.shape)
+    print('hello world')
+    exit()
 
     return logits, target
 
@@ -208,6 +213,8 @@ class HybridTransformer(pl.LightningModule):
                  **kwargs):
     log = dict()
 
+    print('exit in log_images')
+    exit()
     N = 4
     if lr_interface:
       x, c = self.get_xc(batch, N, diffuse=False, upsample_factor=8)
