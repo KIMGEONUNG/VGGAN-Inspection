@@ -154,6 +154,7 @@ class GPT(nn.Module):
     self.tok_emb = nn.Embedding(config.vocab_size, config.n_embd)
     self.pos_emb = nn.Parameter(
         torch.zeros(1, config.block_size, config.n_embd))
+    self.tok_mask = nn.Parameter(torch.randn(config.n_embd))
     self.drop = nn.Dropout(config.embd_pdrop)
 
     # transformer
@@ -181,14 +182,23 @@ class GPT(nn.Module):
       module.bias.data.zero_()
       module.weight.data.fill_(1.0)
 
-  def forward(self, idx, embeddings=None, targets=None):
-    # forward the GPT model
-    token_embeddings = self.tok_emb(
-        idx)  # each index maps to a (learnable) vector
+  def forward(self, idx, mask, hint, cond_embeddings, targets=None):
 
-    if embeddings is not None:  # prepend explicit embeddings
-      token_embeddings = torch.cat((embeddings, token_embeddings), dim=1)
+    # Truncate based on the idx shape
+    mask = mask[:, :idx.size(1), :]
+    hint = hint[:, :idx.size(1), :]
 
+    # each index maps to a (learnable) vector
+    token_embeddings = self.tok_emb(idx)
+
+    # Masking
+    token_embeddings = (mask == 1) * token_embeddings
+    mask_embeddings = (mask == 0) * self.tok_mask
+    hint_embeddings = (mask == -1) * hint
+    token_embeddings = token_embeddings + mask_embeddings + hint_embeddings
+
+    # Add condition
+    token_embeddings = torch.cat((cond_embeddings, token_embeddings), dim=1)
 
     t = token_embeddings.shape[1]
     assert t <= self.block_size, "Cannot forward, model block size is exhausted."
@@ -209,7 +219,7 @@ class GPT(nn.Module):
 
   def forward_with_past(self,
                         idx,
-                        embeddings=None,
+                        embeddings,
                         targets=None,
                         past=None,
                         past_length=None):
