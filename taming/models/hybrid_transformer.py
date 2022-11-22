@@ -48,14 +48,6 @@ class HybridTransformer(pl.LightningModule):
     dim_z_encoder_gray = first_stage_config["params"]["encoder_gray_config"][
         "z_channels"]
 
-    self.linear4luma_g = nn.Conv2d(dim_z_encoder_gray,
-                                   dim_z_encoder_gray,
-                                   kernel_size=1)
-    self.linear4rgb = nn.Conv2d(3,
-                                dim_z_encoder_gray,
-                                kernel_size=1,
-                                bias=False)
-
     if ckpt_path is not None:
       self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
     # self.downsample_cond_size = downsample_cond_size
@@ -83,14 +75,12 @@ class HybridTransformer(pl.LightningModule):
     a_indices = z_indices
 
     feat_g = self.first_stage_model.encoder_gray(x_g)
-    feat_g = self.linear4luma_g(feat_g)
     feat_g = feat_g.view(*feat_g.shape[:-2], -1)  # flatten
     feat_g = feat_g.transpose(-1, -2)  # [B,C,HW] --> [B,HW,C]
 
     mask = mask.view(*mask.shape[:-2], -1)  # flatten
     mask = mask.transpose(-1, -2)  # [B,C,HW] --> [B,HW,C]
 
-    hint = self.linear4rgb(hint)
     hint = hint.view(*hint.shape[:-2], -1)  # flatten
     hint = hint.transpose(-1, -2)  # [B,C,HW] --> [B,HW,C]
 
@@ -206,14 +196,12 @@ class HybridTransformer(pl.LightningModule):
     _, z_indices = self.encode_to_z(x)
 
     feat_g_origin = self.first_stage_model.encoder_gray(x_g)
-    feat_g = self.linear4luma_g(feat_g_origin)
-    feat_g = feat_g.view(*feat_g.shape[:-2], -1)  # flatten
+    feat_g = feat_g_origin.view(*feat_g_origin.shape[:-2], -1)  # flatten
     feat_g = feat_g.transpose(-1, -2)  # [B,C,HW] --> [B,HW,C]
 
     mask = mask.view(*mask.shape[:-2], -1)  # flatten
     mask = mask.transpose(-1, -2)  # [B,C,HW] --> [B,HW,C]
 
-    hint = self.linear4rgb(hint)
     hint = hint.view(*hint.shape[:-2], -1)  # flatten
     hint = hint.transpose(-1, -2)  # [B,C,HW] --> [B,HW,C]
 
@@ -304,7 +292,7 @@ class HybridTransformer(pl.LightningModule):
     # separate out all parameters to those that will and won't experience regularizing weight decay
     decay = set()
     no_decay = set()
-    whitelist_weight_modules = (torch.nn.Linear, )
+    whitelist_weight_modules = (torch.nn.Linear)
     blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
     for mn, m in self.transformer.named_modules():
       for pn, p in m.named_parameters():
@@ -321,7 +309,7 @@ class HybridTransformer(pl.LightningModule):
           no_decay.add(fpn)
 
     # special case for mask embedding
-    decay.add('tok_mask')
+    no_decay.add('tok_mask')
 
     # special case the position embedding parameter in the root GPT module as not decayed
     no_decay.add('pos_emb')

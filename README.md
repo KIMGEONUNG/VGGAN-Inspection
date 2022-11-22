@@ -13,22 +13,14 @@ In this work, Let's inspect the details of VQGAN and get some insights to reprod
 ## Reproduce Memo
 <a id="reproduce-memo"></a>
 
+- Implement transformer training codes <span style="color:red">(WIP)</span> 
+  -<span style="color:red">There is an problem the training severely failed. The first thing I tried is to reduce the learning rate, and to add the omitted weight to the optimizer. Now, the training is on going, and I'm waiting for the results.</span>
+
+### Backlog
 - BugFix
-  - <span style="color:red">Move the codes of arbatrary grayscale conversion to the dataloader</span>
 - Refactoring
-  - Create a file only for Chroma-VQ class <span style="color:gray">(Undo)</span>
 - Experiments on Chroma-VQ 1st stage 
   - Multiple inferences on the arbitrary grayscales which are converted from a single color image. <span style="color:gray">(Undo)</span>
-- Reproduce 2nd stage training codes for Chroma-VQGAN 
-  - Implement training codes 
-    - Implement Data loading <span style="color:red">(WIP)</span>
-    - Implement Hybrid-Transformer <span style="color:red">(WIP)</span>
-      - As the training example includes conditional input, it seems better to preserve original structure and to implant conditional code.
-      - Understand BERT-style scheme
-      - Add MASK TOKEN
-      - Understand spatial concatenate of $f_g$ and $f_h$
-      - Understand Hint-point scheduling
-    - Implement hint sampler <span style="color:red">(WIP)</span>
 - Add arbitary intensity generation to 1st stage <span style="color:green">(Done)</span>
 - Connect UI to model <span style="color:gray">(Undo)</span>
 

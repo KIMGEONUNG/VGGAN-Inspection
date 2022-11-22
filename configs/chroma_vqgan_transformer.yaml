@@ -1,5 +1,5 @@
 model:
-  base_learning_rate: 0.0625
+  base_learning_rate: 4.5e-06
   target: taming.models.hybrid_transformer.HybridTransformer
   params:
     cond_stage_key: gray

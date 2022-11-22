@@ -157,6 +157,9 @@ class GPT(nn.Module):
     self.tok_mask = nn.Parameter(torch.randn(config.n_embd))
     self.drop = nn.Dropout(config.embd_pdrop)
 
+    self.linear4luma_g = nn.Linear(config.n_embd, config.n_embd, bias=True)
+    self.linear4rgb = nn.Linear(3, config.n_embd, bias=False)
+
     # transformer
     self.blocks = nn.Sequential(
         *[Block(config) for _ in range(config.n_layer)])
@@ -184,12 +187,14 @@ class GPT(nn.Module):
 
   def forward(self, idx, mask, hint, cond_embeddings, targets=None):
 
+    # Embeedings
+    token_embeddings = self.tok_emb(idx)
+    cond_embeddings = self.linear4luma_g(cond_embeddings)
+    hint = self.linear4rgb(hint)
+
     # Truncate based on the idx shape
     mask = mask[:, :idx.size(1), :]
     hint = hint[:, :idx.size(1), :]
-
-    # each index maps to a (learnable) vector
-    token_embeddings = self.tok_emb(idx)
 
     # Masking
     token_embeddings = (mask == 1) * token_embeddings
