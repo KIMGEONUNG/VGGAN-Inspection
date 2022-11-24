@@ -193,7 +193,6 @@ class HybridTransformer(pl.LightningModule):
     hint = hint.to(device=self.device)
 
     quant_z, z_indices = self.encode_to_z(x)
-    _, z_indices = self.encode_to_z(x)
 
     feat_g_origin = self.first_stage_model.encoder_gray(x_g)
     feat_g = feat_g_origin.view(*feat_g_origin.shape[:-2], -1)  # flatten
