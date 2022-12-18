@@ -42,14 +42,19 @@ class ImagePaths(Dataset):
             self.preprocessor = lambda **kwargs: kwargs
 
         if self.use_arbitrary_gray:
-            self.togray = self.convert2gray
+            self.togray = self.convert2arbitrary_gray
         else:
-            raise NotImplementedError()
+            self.togray = self.convert2gray
 
     def __len__(self):
         return self._length
 
     def convert2gray(self, x):
+        w = np.array([0.299, 0.587, 0.114])
+        x = (x @ w)[..., None]
+        return x
+
+    def convert2arbitrary_gray(self, x):
         w = np.random.randn(3)
         x = (x @ w)[..., None]
         x = np.tanh(x).astype(np.float32)
@@ -64,12 +69,17 @@ class ImagePaths(Dataset):
         image = (image / 127.5 - 1.0).astype(np.float32)
         return image
 
+    def gen_mask(self, prop=0.5, spatial=(16, 16)):
+        mask = np.random.binomial(1, p=prop, size=spatial)
+        return mask
+
     def __getitem__(self, i):
         example = dict()
         image = self.preprocess_image(self.labels["file_path_"][i])
         example["image"] = image
         example["gray"] = self.togray(image)
-        example["hint_grid"] = self.hint_sampler(image)
+        example["hint"] = self.hint_sampler(image)
+        example["mask"] = self.gen_mask()
         for k in self.labels:
             example[k] = self.labels[k][i]
         return example

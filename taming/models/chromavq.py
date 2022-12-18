@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.transforms import Grayscale
 import pytorch_lightning as pl
@@ -25,6 +26,8 @@ class ChromaVQ(pl.LightningModule):
             ignore_keys=[],
             image_key="image",
             gray_key="gray",
+            hint_key="hint",
+            mask_key="mask",
             colorize_nlabels=None,
             remap=None,
             sane_index_shape=False,  # tell vector quantizer to return indices as bhw
@@ -32,10 +35,19 @@ class ChromaVQ(pl.LightningModule):
         super().__init__()
         self.image_key = image_key
         self.gray_key = gray_key
+        self.hint_key = hint_key
+        self.mask_key = mask_key
 
         # Models
         self.encoder = Encoder(**encoder_config)
         self.encoder_gray = Encoder(**encoder_gray_config)
+        self.color2embd = nn.Sequential(
+            nn.Conv2d(3, embed_dim, kernel_size=1),
+            nn.ReLU(),
+            nn.Conv2d(embed_dim, embed_dim, kernel_size=1),
+            nn.ReLU(),
+            nn.Conv2d(embed_dim, embed_dim, kernel_size=1),
+        )
         self.quant_conv = torch.nn.Conv2d(encoder_config["z_channels"],
                                           embed_dim, 1)
 
@@ -48,12 +60,10 @@ class ChromaVQ(pl.LightningModule):
         self.post_quant_conv = torch.nn.Conv2d(decoder_config["z_channels"],
                                                decoder_config["z_channels"], 1)
         self.decoder = Decoder(**decoder_config)
-
         self.loss = instantiate_from_config(lossconfig)
 
         if ckpt_path is not None:
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
-        self.image_key = image_key
 
     def init_from_ckpt(self, path, ignore_keys=list()):  # For retrain
         sd = torch.load(path, map_location="cpu")["state_dict"]
@@ -83,11 +93,13 @@ class ChromaVQ(pl.LightningModule):
         dec = self.decode(quant_b)
         return dec
 
-    def forward(self, x, x_g):
+    def forward(self, x, x_g, hint, mask):
         quant, diff, _ = self.encode(x)
         feat_g = self.encoder_gray(x_g)
+        hint_embd = self.color2embd(hint)
 
-        quant_cat = torch.cat([quant, feat_g], dim=-3)
+        hybrid = mask * hint_embd + (1 - mask) * quant
+        quant_cat = torch.cat([hybrid, feat_g], dim=-3)
 
         dec = self.decode(quant_cat)
         return dec, diff
@@ -100,21 +112,15 @@ class ChromaVQ(pl.LightningModule):
         x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
         return x.float()
 
-    def synthesize_hint(self, x):
-        return None
-
     def training_step(self, batch, batch_idx, optimizer_idx):
         # If you use multiple optimizers, training_step() will have an additional optimizer_idx parameter.
         # ref: https://pytorch-lightning.readthedocs.io/en/stable/common/lightning_module.html
         x = self.get_input(batch, self.image_key)
         x_g = self.get_input(batch, self.gray_key)
+        hint = self.get_input(batch, self.hint_key)
+        mask = self.get_input(batch, self.mask_key)
 
-        ################## Synthesize Hint ####################################
-        explicit_color = self.synthesize_hint(x)
-
-        ################################################################### END
-
-        xrec, qloss = self(x, x_g)
+        xrec, qloss = self(x, x_g, hint, mask)
         if optimizer_idx == 0:
             # autoencode
             aeloss, log_dict_ae = self.loss(qloss,
@@ -164,8 +170,10 @@ class ChromaVQ(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x = self.get_input(batch, self.image_key)
         x_g = self.get_input(batch, self.gray_key)
+        hint = self.get_input(batch, self.hint_key)
+        mask = self.get_input(batch, self.mask_key)
 
-        xrec, qloss = self(x, x_g)
+        xrec, qloss = self(x, x_g, hint, mask)
         aeloss, log_dict_ae = self.loss(qloss,
                                         x,
                                         xrec,
@@ -205,6 +213,7 @@ class ChromaVQ(pl.LightningModule):
         opt_ae = torch.optim.Adam(list(self.encoder.parameters()) +
                                   list(self.decoder.parameters()) +
                                   list(self.encoder_gray.parameters()) +
+                                  list(self.color2embd.parameters()) +
                                   list(self.quantize.parameters()) +
                                   list(self.quant_conv.parameters()) +
                                   list(self.post_quant_conv.parameters()),
@@ -220,18 +229,20 @@ class ChromaVQ(pl.LightningModule):
 
     def log_images(self, batch, **kwargs):  #  callback
         log = dict()
-        x = self.get_input(batch, self.image_key)
-        x_g = self.get_input(batch, self.gray_key)
+
+        x = self.get_input(batch, self.image_key)  # [B, 3, 256, 256]
+        x_g = self.get_input(batch, self.gray_key)  # [B, 1, 256, 256]
+        hint = self.get_input(batch, self.hint_key)  # [B, 3, 16, 16]
+        mask = self.get_input(batch, self.mask_key)  # [B, 1, 16, 16]
 
         x, x_g = x.to(self.device), x_g.to(self.device)
+        hint, mask = hint.to(self.device), mask.to(self.device)
 
-        xrec, _ = self(x, x_g)
+        xrec, _ = self(x, x_g, hint, mask)
 
-        if x.shape[1] > 3:
-            # colorize with random projection
-            assert xrec.shape[1] > 3
-            x = self.to_rgb(x)
-            xrec = self.to_rgb(xrec)
         log["inputs"] = x
+        log["gray"] = x_g.repeat(1, 3, 1, 1)
+        log["hint"] = hint
+        log["mask"] = mask.repeat(1, 3, 1, 1)
         log["reconstructions"] = xrec
         return log

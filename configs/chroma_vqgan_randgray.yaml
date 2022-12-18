@@ -52,12 +52,12 @@ data:
     train:
       target: taming.data.chroma.ChromaTrain
       params:
-        use_arbitrary_gray: False
+        use_arbitrary_gray: True
         training_images_list_file: datasets/train.txt
         size: 256
     validation:
       target: taming.data.chroma.ChromaTest
       params:
-        use_arbitrary_gray: False
+        use_arbitrary_gray: True
         test_images_list_file: datasets/test.txt
         size: 256

@@ -287,8 +287,8 @@ class ImageLogger(Callback):
             grid = grid.transpose(0, 1).transpose(1, 2).squeeze(-1)
             grid = grid.numpy()
             grid = (grid * 255).astype(np.uint8)
-            filename = "{}_gs-{:06}_e-{:06}_b-{:06}.png".format(
-                k, global_step, current_epoch, batch_idx)
+            filename = "gs-{:06}_e-{:06}_b-{:06}_{}.png".format(
+                global_step, current_epoch, batch_idx, k)
             path = os.path.join(root, filename)
             os.makedirs(os.path.split(path)[0], exist_ok=True)
             Image.fromarray(grid).save(path)
