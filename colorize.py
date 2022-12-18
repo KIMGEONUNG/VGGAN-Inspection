@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import gradio as gr
 import cv2.cv2 as cv
 import argparse
@@ -19,6 +21,7 @@ def parse():
   p.add_argument("--path_log",
                  type=str,
                  default="logs/2022-11-22T23-42-43_chroma_vqgan_transformer")
+  p.add_argument("--share_link", action='store_true')
   p.add_argument("--path_input",
                  type=str,
                  default="inputs/ILSVRC2012_val_00002071_resize_256.JPEG")
@@ -277,6 +280,6 @@ if __name__ == "__main__":
                        inputs=[image_original, viewer_gray, viewer_hint],
                        outputs=viewer_result)
 
-  demo.launch(share=False)
+  demo.launch(share=args.share_link)
   ############################################################################
   print('Program finished')
