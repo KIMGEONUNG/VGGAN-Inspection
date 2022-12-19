@@ -249,8 +249,10 @@ if __name__ == "__main__":
         trainer_kwargs = dict()
 
         # LOGGER CONFIGS
-        trainer_kwargs["logger"] = WandbLogger(project="VQGAN",
-                                               name=nowname)
+        wandb_logger = WandbLogger(project="VQGAN", name=nowname)
+        wandb_logger.watch(model, log="all")
+        trainer_kwargs["logger"] = wandb_logger
+
         trainer_kwargs["callbacks"] = [
             ModelCheckpoint(dirpath=ckptdir,
                             filename="checkpoint_{epoch:03d}",

@@ -11,7 +11,8 @@ from taming.modules.vqvae.quantize import VectorQuantizer2 as VectorQuantizer
 from taming.modules.vqvae.quantize import GumbelQuantize
 from taming.modules.vqvae.quantize import EMAVectorQuantizer
 
-from torchvision.transforms import ToPILImage
+from torchvision.transforms import ToPILImage, Resize
+from torchvision.transforms import InterpolationMode
 import wandb
 
 
@@ -136,12 +137,10 @@ class ChromaVQ(pl.LightningModule):
             self.log(
                 "train/aeloss",
                 aeloss,
-                logger=True,
                 rank_zero_only=True,
             )
             self.log_dict(
                 log_dict_ae,
-                logger=True,
                 rank_zero_only=True,
             )
             return aeloss
@@ -195,31 +194,32 @@ class ChromaVQ(pl.LightningModule):
                                             split="val")
         rec_loss = log_dict_ae["val/rec_loss"]
 
-        self.log("valid/rec_loss", rec_loss, logger=True)
-        self.log("valid/aeloss", aeloss, logger=True)
-        self.log_dict(log_dict_ae, logger=True)
-        self.log_dict(log_dict_disc, logger=True)
+        self.log("val/rec_loss", rec_loss)
+        self.log("val/aeloss", aeloss)
+        self.log_dict(log_dict_ae)
+        self.log_dict(log_dict_disc)
 
-        self.logger.log_image(
-            key="GT",
-            images=[ToPILImage()(img) for img in x.add(1).div(2)],
-            step=self.global_step)
-        self.logger.log_image(
-            key="Gray",
-            images=[
-                ToPILImage()(img)
-                for img in x_g.repeat(1, 3, 1, 1).add(1).div(2)
-            ],
-            step=self.global_step)
-        self.logger.log_image(
-            key="Recon",
-            images=[
-                ToPILImage()(img)
-                for img in xrec.add(1).div(2)
-            ],
-            step=self.global_step)
+        if batch_idx == 0:
+            self._log_images(x, x_g, hint, mask, xrec)
 
         return self.log_dict
+
+    def _log_images(self, x, x_g, hint, mask, recon):
+
+        x = x.add(1).div(2).clamp(0, 1)
+        x_g = x_g.repeat(1, 3, 1, 1).add(1).div(2).clamp(0, 1)
+        hint = hint.add(1).div(2).clamp(0, 1)
+        recon = recon.add(1).div(2).clamp(0, 1)
+
+        size = x.shape[2:4]
+        hint = Resize(size,
+                      interpolation=InterpolationMode.NEAREST)(hint * mask)
+
+        imgs = torch.cat([x, x_g, hint, recon], dim=-2)
+
+        self.logger.log_image(key="Results",
+                              images=[ToPILImage()(img) for img in imgs],
+                              step=self.global_step)
 
     def configure_optimizers(self):
         lr = self.learning_rate
@@ -239,23 +239,3 @@ class ChromaVQ(pl.LightningModule):
 
     def get_last_layer(self):
         return self.decoder.conv_out.weight
-
-    def log_images(self, batch, **kwargs):  #  callback
-        log = dict()
-
-        x = self.get_input(batch, self.image_key)  # [B, 3, 256, 256]
-        x_g = self.get_input(batch, self.gray_key)  # [B, 1, 256, 256]
-        hint = self.get_input(batch, self.hint_key)  # [B, 3, 16, 16]
-        mask = self.get_input(batch, self.mask_key)  # [B, 1, 16, 16]
-
-        x, x_g = x.to(self.device), x_g.to(self.device)
-        hint, mask = hint.to(self.device), mask.to(self.device)
-
-        xrec, _ = self(x, x_g, hint, mask)
-
-        log["inputs"] = x
-        log["gray"] = x_g.repeat(1, 3, 1, 1)
-        log["hint"] = hint
-        log["mask"] = mask.repeat(1, 3, 1, 1)
-        log["reconstructions"] = xrec
-        return log
