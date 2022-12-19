@@ -7,3 +7,5 @@ datasets
 results_*
 
 log.txt
+wandb
+logs_mark

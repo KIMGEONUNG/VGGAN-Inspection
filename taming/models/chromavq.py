@@ -11,6 +11,9 @@ from taming.modules.vqvae.quantize import VectorQuantizer2 as VectorQuantizer
 from taming.modules.vqvae.quantize import GumbelQuantize
 from taming.modules.vqvae.quantize import EMAVectorQuantizer
 
+from torchvision.transforms import ToPILImage
+import wandb
+
 
 class ChromaVQ(pl.LightningModule):
 
@@ -130,18 +133,17 @@ class ChromaVQ(pl.LightningModule):
                                             self.global_step,
                                             last_layer=self.get_last_layer(),
                                             split="train")
-
-            self.log("train/aeloss",
-                     aeloss,
-                     prog_bar=True,
-                     logger=True,
-                     on_step=True,
-                     on_epoch=True)
-            self.log_dict(log_dict_ae,
-                          prog_bar=False,
-                          logger=True,
-                          on_step=True,
-                          on_epoch=True)
+            self.log(
+                "train/aeloss",
+                aeloss,
+                logger=True,
+                rank_zero_only=True,
+            )
+            self.log_dict(
+                log_dict_ae,
+                logger=True,
+                rank_zero_only=True,
+            )
             return aeloss
 
         if optimizer_idx == 1:
@@ -154,17 +156,19 @@ class ChromaVQ(pl.LightningModule):
                 self.global_step,
                 last_layer=self.get_last_layer(),
                 split="train")
-            self.log("train/discloss",
-                     discloss,
-                     prog_bar=True,
-                     logger=True,
-                     on_step=True,
-                     on_epoch=True)
-            self.log_dict(log_dict_disc,
-                          prog_bar=False,
-                          logger=True,
-                          on_step=True,
-                          on_epoch=True)
+
+            self.log(
+                "train/discloss",
+                discloss,
+                logger=True,
+                rank_zero_only=True,
+            )
+
+            self.log_dict(
+                log_dict_disc,
+                logger=True,
+                rank_zero_only=True,
+            )
             return discloss
 
     def validation_step(self, batch, batch_idx):
@@ -190,22 +194,31 @@ class ChromaVQ(pl.LightningModule):
                                             last_layer=self.get_last_layer(),
                                             split="val")
         rec_loss = log_dict_ae["val/rec_loss"]
-        self.log("val/rec_loss",
-                 rec_loss,
-                 prog_bar=True,
-                 logger=True,
-                 on_step=True,
-                 on_epoch=True,
-                 sync_dist=True)
-        self.log("val/aeloss",
-                 aeloss,
-                 prog_bar=True,
-                 logger=True,
-                 on_step=True,
-                 on_epoch=True,
-                 sync_dist=True)
-        self.log_dict(log_dict_ae)
-        self.log_dict(log_dict_disc)
+
+        self.log("valid/rec_loss", rec_loss, logger=True)
+        self.log("valid/aeloss", aeloss, logger=True)
+        self.log_dict(log_dict_ae, logger=True)
+        self.log_dict(log_dict_disc, logger=True)
+
+        self.logger.log_image(
+            key="GT",
+            images=[ToPILImage()(img) for img in x.add(1).div(2)],
+            step=self.global_step)
+        self.logger.log_image(
+            key="Gray",
+            images=[
+                ToPILImage()(img)
+                for img in x_g.repeat(1, 3, 1, 1).add(1).div(2)
+            ],
+            step=self.global_step)
+        self.logger.log_image(
+            key="Recon",
+            images=[
+                ToPILImage()(img)
+                for img in xrec.add(1).div(2)
+            ],
+            step=self.global_step)
+
         return self.log_dict
 
     def configure_optimizers(self):

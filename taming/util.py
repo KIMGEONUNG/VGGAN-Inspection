@@ -1,18 +1,51 @@
+import importlib
 import os, hashlib
 import requests
 from tqdm import tqdm
 
+from pytorch_lightning.trainer import Trainer
+import argparse
+
 URL_MAP = {
-    "vgg_lpips": "https://heibox.uni-heidelberg.de/f/607503859c864bc1b30b/?dl=1"
+    "vgg_lpips":
+    "https://heibox.uni-heidelberg.de/f/607503859c864bc1b30b/?dl=1"
 }
 
-CKPT_MAP = {
-    "vgg_lpips": "vgg.pth"
-}
+CKPT_MAP = {"vgg_lpips": "vgg.pth"}
 
-MD5_MAP = {
-    "vgg_lpips": "d507d7349b931f0638a25a48a722f98a"
-}
+MD5_MAP = {"vgg_lpips": "d507d7349b931f0638a25a48a722f98a"}
+
+
+def load_model_from_config(config, sd, gpu=True, eval_mode=True):
+    model = instantiate_from_config(config)
+    if sd is not None:
+        model.load_state_dict(sd)
+    if gpu:
+        model.cuda()
+    if eval_mode:
+        model.eval()
+    return {"model": model}
+
+
+def nondefault_trainer_args(opt):
+    parser = argparse.ArgumentParser()
+    parser = Trainer.add_argparse_args(parser)
+    args = parser.parse_args([])
+    return sorted(k for k in vars(args) if getattr(opt, k) != getattr(args, k))
+
+
+def instantiate_from_config(config):
+    if "target" not in config:
+        raise KeyError("Expected key `target` to instantiate.")
+    return get_obj_from_str(config["target"])(**config.get("params", dict()))
+
+
+def get_obj_from_str(string, reload=False):
+    module, cls = string.rsplit(".", 1)
+    if reload:
+        module_imp = importlib.import_module(module)
+        importlib.reload(module_imp)
+    return getattr(importlib.import_module(module, package=None), cls)
 
 
 def download(url, local_path, chunk_size=1024):
@@ -36,8 +69,10 @@ def md5_hash(path):
 def get_ckpt_path(name, root, check=False):
     assert name in URL_MAP
     path = os.path.join(root, CKPT_MAP[name])
-    if not os.path.exists(path) or (check and not md5_hash(path) == MD5_MAP[name]):
-        print("Downloading {} model from {} to {}".format(name, URL_MAP[name], path))
+    if not os.path.exists(path) or (check
+                                    and not md5_hash(path) == MD5_MAP[name]):
+        print("Downloading {} model from {} to {}".format(
+            name, URL_MAP[name], path))
         download(URL_MAP[name], path)
         md5 = md5_hash(path)
         assert md5 == MD5_MAP[name], md5
@@ -45,6 +80,7 @@ def get_ckpt_path(name, root, check=False):
 
 
 class KeyNotFoundError(Exception):
+
     def __init__(self, cause, keys=None, visited=None):
         self.cause = cause
         self.keys = keys
@@ -59,9 +95,12 @@ class KeyNotFoundError(Exception):
         super().__init__(message)
 
 
-def retrieve(
-    list_or_dict, key, splitval="/", default=None, expand=True, pass_success=False
-):
+def retrieve(list_or_dict,
+             key,
+             splitval="/",
+             default=None,
+             expand=True,
+             pass_success=False):
     """Given a nested list or dict return the desired value at key expanding
     callable nodes if necessary and :attr:`expand` is ``True``. The expansion
     is done in-place.
@@ -143,15 +182,15 @@ def retrieve(
 
 
 if __name__ == "__main__":
-    config = {"keya": "a",
-              "keyb": "b",
-              "keyc":
-                  {"cc1": 1,
-                   "cc2": 2,
-                   }
-              }
+    config = {
+        "keya": "a",
+        "keyb": "b",
+        "keyc": {
+            "cc1": 1,
+            "cc2": 2,
+        }
+    }
     from omegaconf import OmegaConf
     config = OmegaConf.create(config)
     print(config)
     retrieve(config, "keya")
-

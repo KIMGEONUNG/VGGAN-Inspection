@@ -7,7 +7,7 @@
                   "type": "python",                                                       
                   "cwd": "${workspaceRoot}",                                              
                   "program": "main.py",
-                  "args":["--base", "configs/chroma_vqgan.yaml", "-t", "True", "--gpus", "0,"],
+                  "args":["--base", "configs/chroma_vqgan.yaml", "-t", "True","--accelerator" ,"gpu" ,"--devices", "0,"],
                   "stopOnEntry": true,                                                   
                   "console": "integratedTerminal",
                   "env": {"FOO": "123"},

@@ -3,6 +3,18 @@
 Vector Quantized Generative Adversarial Network (VGGAN) achieves a performant fusion architecture of CNN and Transformer, now become an prevalent backbone network.
 In this work, Let's inspect the details of VQGAN and get some insights to reproduce Unicolor.
 
+## Refactoring
+
+- Enhance logging system
+  - Add clamp logger
+  - Fix the orders of validation data
+  - Find proper way to show all conditions
+
+## Experiments
+
+- Implement GUI for recolorization 
+    - Implement GUI for recolorization 
+
 ## Fast links
 
 - [Reproduce Memo](#reproduce-memo)
