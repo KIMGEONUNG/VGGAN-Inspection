@@ -80,9 +80,11 @@ class ChromaVQ(pl.LightningModule):
         self.load_state_dict(sd, strict=False)
         print(f"Restored from {path}")
 
-    def encode(self, x_rgb):
+    def encode(self, x_rgb, hint_embd=None, mask=None):
         h = self.encoder(x_rgb)
-        h = self.quant_conv(h)
+        h = self.quant_conv(h)  # After that we have to use mask and hint
+        if hint_embd is not None and mask is not None:
+            h = mask * hint_embd + (1 - mask) * h
         quant, emb_loss, info = self.quantize(h)
 
         return quant, emb_loss, info
@@ -98,12 +100,12 @@ class ChromaVQ(pl.LightningModule):
         return dec
 
     def forward(self, x, x_g, hint, mask):
-        quant, diff, _ = self.encode(x)
-        feat_g = self.encoder_gray(x_g)
         hint_embd = self.color2embd(hint)
 
-        hybrid = mask * hint_embd + (1 - mask) * quant
-        quant_cat = torch.cat([hybrid, feat_g], dim=-3)
+        quant, diff, _ = self.encode(x, hint_embd, mask)
+        feat_g = self.encoder_gray(x_g)
+
+        quant_cat = torch.cat([quant, feat_g], dim=-3)
 
         dec = self.decode(quant_cat)
         return dec, diff
