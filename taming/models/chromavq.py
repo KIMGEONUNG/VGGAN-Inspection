@@ -26,6 +26,7 @@ class ChromaVQ(pl.LightningModule):
             lossconfig,
             n_embed,
             embed_dim,
+            vqhint,
             ckpt_path=None,
             ignore_keys=[],
             image_key="image",
@@ -41,6 +42,7 @@ class ChromaVQ(pl.LightningModule):
         self.gray_key = gray_key
         self.hint_key = hint_key
         self.mask_key = mask_key
+        self.vqhint = vqhint 
 
         # Models
         self.encoder = Encoder(**encoder_config)
@@ -80,12 +82,18 @@ class ChromaVQ(pl.LightningModule):
         self.load_state_dict(sd, strict=False)
         print(f"Restored from {path}")
 
-    def encode(self, x_rgb, hint_embd=None, mask=None):
+    def encode(self, x_rgb, feat_g, hint_embd, mask):
         h = self.encoder(x_rgb)
         h = self.quant_conv(h)  # After that we have to use mask and hint
-        if hint_embd is not None and mask is not None:
+
+        if self.vqhint:
             h = mask * hint_embd + (1 - mask) * h
-        quant, emb_loss, info = self.quantize(h)
+            quant, emb_loss, info = self.quantize(h)
+        else:
+            quant, emb_loss, info = self.quantize(h)
+            quant = mask * hint_embd + (1 - mask) * quant
+
+        quant = torch.cat([quant, feat_g], dim=-3)
 
         return quant, emb_loss, info
 
@@ -101,13 +109,11 @@ class ChromaVQ(pl.LightningModule):
 
     def forward(self, x, x_g, hint, mask):
         hint_embd = self.color2embd(hint)
-
-        quant, diff, _ = self.encode(x, hint_embd, mask)
         feat_g = self.encoder_gray(x_g)
 
-        quant_cat = torch.cat([quant, feat_g], dim=-3)
+        quant, diff, _ = self.encode(x, feat_g, hint_embd, mask)
 
-        dec = self.decode(quant_cat)
+        dec = self.decode(quant)
         return dec, diff
 
     def get_input(self, batch, k):
