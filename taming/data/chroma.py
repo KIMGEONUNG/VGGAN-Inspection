@@ -7,7 +7,7 @@ from skimage.util import img_as_float
 from skimage import io
 import skimage.measure
 import random
-from ..algorithms import HintSampler
+from ..algorithms import HintSampler, GrayConversion
 
 
 class ImagePaths(Dataset):
@@ -17,10 +17,10 @@ class ImagePaths(Dataset):
                  size=None,
                  random_crop=False,
                  labels=None,
-                 use_arbitrary_gray=False):
+                 togray="classic"):
         self.size = size
         self.random_crop = random_crop
-        self.use_arbitrary_gray = use_arbitrary_gray
+        self.togray_method = togray
 
         self.labels = dict() if labels is None else labels
         self.labels["file_path_"] = paths
@@ -41,24 +41,14 @@ class ImagePaths(Dataset):
         else:
             self.preprocessor = lambda **kwargs: kwargs
 
-        if self.use_arbitrary_gray:
-            self.togray = self.convert2arbitrary_gray
-        else:
-            self.togray = self.convert2gray
+        self.togray = GrayConversion(
+            name=self.togray_method,
+            preprocess=lambda x: (x + 1) * 0.5,
+            postprocess=lambda x: (x * 2) - 1,
+        )
 
     def __len__(self):
         return self._length
-
-    def convert2gray(self, x):
-        w = np.array([0.299, 0.587, 0.114])
-        x = (x @ w)[..., None]
-        return x
-
-    def convert2arbitrary_gray(self, x):
-        w = np.random.randn(3)
-        x = (x @ w)[..., None]
-        x = np.tanh(x).astype(np.float32)
-        return x
 
     def preprocess_image(self, image_path):
         image = Image.open(image_path)
@@ -75,6 +65,7 @@ class ImagePaths(Dataset):
 
     def __getitem__(self, i):
         example = dict()
+        # The image range is [-1, 1]
         image = self.preprocess_image(self.labels["file_path_"][i])
         example["image"] = image
         example["gray"] = self.togray(image)
@@ -101,24 +92,24 @@ class ChromaBase(Dataset):
 
 class ChromaTrain(ChromaBase):
 
-    def __init__(self, size, training_images_list_file, use_arbitrary_gray):
+    def __init__(self, size, training_images_list_file, togray):
         super().__init__()
         with open(training_images_list_file, "r") as f:
             paths = f.read().splitlines()
         self.data = ImagePaths(paths=paths,
                                size=size,
-                               use_arbitrary_gray=use_arbitrary_gray)
+                               togray=togray)
 
 
 class ChromaTest(ChromaBase):
 
-    def __init__(self, size, test_images_list_file, use_arbitrary_gray):
+    def __init__(self, size, test_images_list_file, togray):
         super().__init__()
         with open(test_images_list_file, "r") as f:
             paths = f.read().splitlines()
         self.data = ImagePaths(paths=paths,
                                size=size,
-                               use_arbitrary_gray=use_arbitrary_gray)
+                               togray=togray)
 
 
 class ImagePaths2(Dataset):
