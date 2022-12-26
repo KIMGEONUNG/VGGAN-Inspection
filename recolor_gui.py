@@ -60,6 +60,7 @@ class ReColorGUI(object):
                         "RandGray",
                         "VQHint",
                         "VQHint+RandGray",
+                        "ScaleGray",
                     ])
                     btn = gr.Button("Colorize").style(height=self.height)
 
@@ -185,6 +186,8 @@ class ReColorGUI(object):
             "logs_mark/2022-12-20T02-00-03_chroma_vqgan",
             "VQHint+RandGray":
             "logs_mark/2022-12-20T02-01-42_chroma_vqgan_randgray",
+            "ScaleGray":
+            "logs_mark/2022-12-21T12-25-22_chroma_vqgan",
         }
 
         path_log = MAP_PATH[key]

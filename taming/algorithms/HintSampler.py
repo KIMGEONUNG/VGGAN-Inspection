@@ -147,8 +147,6 @@ class HintSampler():
         assert isinstance(x, np.ndarray)
         return self.gen_hint_grid(x)
 
-        return None
-
 
 if __name__ == "__main__":
     from pycomar.samples import get_img
