@@ -7,7 +7,7 @@ from skimage.util import img_as_float
 from skimage import io
 import skimage.measure
 import random
-from ..algorithms import HintSampler, GrayConversion
+from ..algorithms import HintSampler, GrayConversion, SignalProcessor
 
 
 class ImagePaths(Dataset):
@@ -43,9 +43,8 @@ class ImagePaths(Dataset):
 
         self.togray = GrayConversion(
             name=self.togray_method,
-            preprocess=lambda x: (x + 1) * 0.5,
-            postprocess=lambda x: (x * 2) - 1,
-        )
+            preprocess=SignalProcessor.renorm_m1_1_to_zero_1,
+            postprocess=SignalProcessor.renorm_zero_1_to_m1_1)
 
     def __len__(self):
         return self._length
@@ -96,9 +95,7 @@ class ChromaTrain(ChromaBase):
         super().__init__()
         with open(training_images_list_file, "r") as f:
             paths = f.read().splitlines()
-        self.data = ImagePaths(paths=paths,
-                               size=size,
-                               togray=togray)
+        self.data = ImagePaths(paths=paths, size=size, togray=togray)
 
 
 class ChromaTest(ChromaBase):
@@ -107,9 +104,7 @@ class ChromaTest(ChromaBase):
         super().__init__()
         with open(test_images_list_file, "r") as f:
             paths = f.read().splitlines()
-        self.data = ImagePaths(paths=paths,
-                               size=size,
-                               togray=togray)
+        self.data = ImagePaths(paths=paths, size=size, togray=togray)
 
 
 class ImagePaths2(Dataset):

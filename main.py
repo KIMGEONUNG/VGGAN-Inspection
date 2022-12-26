@@ -250,7 +250,7 @@ if __name__ == "__main__":
 
         # LOGGER CONFIGS
         wandb_logger = WandbLogger(project="VQGAN", name=nowname)
-        wandb_logger.watch(model, log="all")
+        # wandb_logger.watch(model, log="all")
         trainer_kwargs["logger"] = wandb_logger
 
         trainer_kwargs["callbacks"] = [

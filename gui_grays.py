@@ -19,7 +19,11 @@ class GraysGUI(object):
         self.methods = [
             "classic",
             "scale",
-            "heavy",
+            "scale_with_invert",
+            "normal_weight_A",
+            "normal_weight_A_equalsign",
+            "normal_weight_B",
+            "uniform_weight_A",
         ]
 
         # Define GUI Layout
@@ -44,13 +48,15 @@ class GraysGUI(object):
                     num_infer = gr.Slider(minimum=1, maximum=32, value=16)
                     btn = gr.Button("Convert Gray").style(height=self.height)
             with gr.Box():
-                with gr.Row():
-                    gallery = gr.Gallery().style(grid=4)
+                with gr.Column():
+                    with gr.Row():
+                        gallery = gr.Gallery().style(grid=4)
+                    log = gr.Textbox()
 
             # Define Events
             btn.click(self.callback_inference,
                       inputs=[view_gt, methods, num_infer],
-                      outputs=gallery)
+                      outputs=[gallery, log])
 
     def launch(self):
         self.demo.launch(share=self.share)
@@ -58,9 +64,15 @@ class GraysGUI(object):
     def callback_inference(self, x: np.ndarray, method: str, num_iter: int):
         if x is None:
             return None
-        return [
+        pairs = [
             self.model.gen_method3str(x, method) for _ in range(int(num_iter))
         ]
+        imgs = [img for img, named_params in pairs]
+        params = [str(named_params) for img, named_params in pairs]
+        log = ""
+        for i, p in enumerate(params):
+            log += "%2d: %s\n" % (i, p)
+        return imgs, log
 
 
 if __name__ == "__main__":
