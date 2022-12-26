@@ -27,7 +27,9 @@ class GraysGUI(object):
         with gr.Blocks(css=css) as self.demo:
             with gr.Box():
                 with gr.Row():
-                    view_gt = gr.Image(label="GT").style(height=self.height)
+                    view_gt = gr.Image(
+                        label="GT",
+                        interactive=False).style(height=self.height)
             gr.Examples([
                 "inputs/ILSVRC2012_val_00002071_resize_256.JPEG",
                 "inputs/ILSVRC2012_val_00005567_resize_256_256.JPEG",
@@ -54,6 +56,8 @@ class GraysGUI(object):
         self.demo.launch(share=self.share)
 
     def callback_inference(self, x: np.ndarray, method: str, num_iter: int):
+        if x is None:
+            return None
         return [
             self.model.gen_method3str(x, method) for _ in range(int(num_iter))
         ]
