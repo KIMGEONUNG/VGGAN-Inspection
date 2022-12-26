@@ -192,7 +192,7 @@ class ReColorGUI(object):
 
         path_log = MAP_PATH[key]
 
-        path_ckpt = glob(join(path_log, "checkpoints/*.ckpt"))[0]
+        path_ckpt = sorted(glob(join(path_log, "checkpoints/*.ckpt")))[-1]
         path_config = glob(join(path_log, "configs/*-project.yaml"))[0]
         assert exists(path_ckpt)
         assert exists(path_config)
@@ -205,6 +205,7 @@ class ReColorGUI(object):
         self.model = model
         message = "New model was set : ", path_log
         print(message)
+        print("path_ckpt:", path_ckpt)
         return message
 
     def predict(self, img: np.ndarray):
