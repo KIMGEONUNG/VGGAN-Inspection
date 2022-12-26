@@ -3,22 +3,14 @@
 import skimage
 import gradio as gr
 from cv2 import cv2
-import argparse
-import importlib
 import torch
 from glob import glob
 from os.path import join, exists
 from omegaconf import OmegaConf
-from PIL import Image
-import torchvision.transforms as T
-import torchvision.transforms.functional as TF
-from functools import partial
 import numpy as np
-import pycomar.images
 from torchvision.transforms import ToPILImage, Grayscale
 
-from taming.util import (get_obj_from_str, instantiate_from_config,
-                         load_model_from_config)
+from taming.util import load_model_from_config
 
 
 class ReColorGUI(object):
@@ -46,12 +38,11 @@ class ReColorGUI(object):
                         label="overlay",
                         interactive=False).style(height=self.height)
                 with gr.Row():
-                    upload_button = gr.UploadButton("Click to Upload a hint image", file_types=["image"], file_count="single")
-                gr.Examples([
-                    "inputs/ILSVRC2012_val_00002071_resize_256.JPEG",
-                    "inputs/ILSVRC2012_val_00005567_resize_256_256.JPEG"
-                ],
-                            inputs=view_gt)
+                    upload_button = gr.UploadButton(
+                        "Click to Upload a hint image",
+                        file_types=["image"],
+                        file_count="single")
+                gr.Examples(sorted(glob("inputs/birds256/*")), inputs=view_gt)
 
             with gr.Box():
                 with gr.Row():
@@ -74,7 +65,9 @@ class ReColorGUI(object):
                     interactive=False).style(height=self.height)
 
             # Define GUI Events
-            upload_button.upload(self._upload_hint, inputs=[upload_button, view_gt], outputs=[view_hint, view_overlay])
+            upload_button.upload(self._upload_hint,
+                                 inputs=[upload_button, view_gt],
+                                 outputs=[view_hint, view_overlay])
             view_gt.change(self._togray, view_gt, view_stroke)
             view_stroke.change(self._mk_hint, [view_stroke, view_gt],
                                [view_hint, view_overlay])
@@ -86,11 +79,13 @@ class ReColorGUI(object):
 
     def _upload_hint(self, file, gt):
         hint = skimage.io.imread(file.name)
-        self.hint = hint # Enroll hint
+        self.hint = hint  # Enroll hint
 
         # Make overlay
         alpha = 0.5
-        hint_up = cv2.resize(hint, gt.shape[:-1], interpolation=cv2.INTER_NEAREST)
+        hint_up = cv2.resize(hint,
+                             gt.shape[:-1],
+                             interpolation=cv2.INTER_NEAREST)
         mask = np.all(hint_up == [0, 0, 0], axis=-1)[..., None]
 
         hint_up = hint_up.astype('float')
@@ -178,16 +173,12 @@ class ReColorGUI(object):
     def set_model(self, key):
 
         MAP_PATH = {
-            "Baseline":
-            "logs_mark/2022-12-18T07-06-50_chroma_vqgan",
-            "RandGray":
-            "logs_mark/2022-12-18T07-08-41_chroma_vqgan_randgray",
-            "VQHint":
-            "logs_mark/2022-12-20T02-00-03_chroma_vqgan",
+            "Baseline": "logs_mark/2022-12-18T07-06-50_chroma_vqgan",
+            "RandGray": "logs_mark/2022-12-18T07-08-41_chroma_vqgan_randgray",
+            "VQHint": "logs_mark/2022-12-20T02-00-03_chroma_vqgan",
             "VQHint+RandGray":
             "logs_mark/2022-12-20T02-01-42_chroma_vqgan_randgray",
-            "ScaleGray":
-            "logs_mark/2022-12-21T12-25-22_chroma_vqgan",
+            "ScaleGray": "logs_mark/2022-12-21T12-25-22_chroma_vqgan",
         }
 
         path_log = MAP_PATH[key]
