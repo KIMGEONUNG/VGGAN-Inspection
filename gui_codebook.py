@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 
-import skimage
 import gradio as gr
-from cv2 import cv2
 import torch
 from glob import glob
 from os.path import join, exists
