@@ -59,6 +59,8 @@ some additional restoration techniques can be required for color editing
 
 ## Stochastic Intensity Conversion  
 
+### Extreme conversion
+
 Consider a natural image $I_{RGB} = [R, G, B] \in [0,1]^3$.
 To evade non-negativity, the rearraged image as
 $$
@@ -76,6 +78,25 @@ Fianlly, the formulation is as
 
 $$
  I_{g} = \frac{1 + tanh(I^{*}_{g})}{2}
+$$
+
+### Scale and Shift Conversion
+
+$$
+ \hat{I}_{g} = s\cdot I_{g} + b,\quad \text{where}~s \sim \mathcal{U(0, 1)},~b\sim \mathcal{U(0, s)}.
+$$
+
+### Scale and Shift Conversion with Random Invert
+
+$$
+ \hat{I}_{g} = s\cdot I_{g} + b,\quad or \quad 1 -\hat{I}_{g} \\
+ \text{where}~s \sim \mathcal{U(0, 1)},~b\sim \mathcal{U(0, s)}.
+$$
+
+### What the codebook learn
+
+$$
+\mathbb{U}_{code}= \mathbb{U}_{I_x} - \mathbb{U}_{I_{cond}}
 $$
 
 ## Stage2 Structure

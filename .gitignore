@@ -5,7 +5,8 @@ taming_transformers.egg-info
 vgg.pth
 datasets
 results_*
-tmp
+tmp*
+experiments
 
 log.txt
 wandb
