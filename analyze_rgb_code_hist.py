@@ -141,4 +141,4 @@ if __name__ == "__main__":
         code: np.ndarray = info[2].cpu().numpy()
         codes.append(code)
     codes = np.concatenate(codes)
-    np.save("tmp/rgb_codes", codes)
+    np.save("experiments/code-hist_scale", codes)

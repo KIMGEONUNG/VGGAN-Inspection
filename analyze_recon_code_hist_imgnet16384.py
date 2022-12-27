@@ -17,6 +17,9 @@ from torchvision.datasets import ImageFolder
 from taming.algorithms import SignalProcessor
 from tqdm import tqdm
 
+import yaml
+from taming.models.vqgan import VQModel, GumbelVQ
+
 
 class System(object):
     """Recolorization GUI System"""
@@ -110,39 +113,62 @@ class System(object):
         return code, output, code_log
 
 
+def load_config(config_path, display=False):
+    config = OmegaConf.load(config_path)
+    if display:
+        print(yaml.dump(OmegaConf.to_container(config)))
+    return config
+
+
+def load_vqgan(config, ckpt_path=None, is_gumbel=False):
+    if is_gumbel:
+        model = GumbelVQ(**config.model.params)
+    else:
+        model = VQModel(**config.model.params)
+    if ckpt_path is not None:
+        sd = torch.load(ckpt_path, map_location="cpu")["state_dict"]
+        missing, unexpected = model.load_state_dict(sd, strict=False)
+    return model.eval()
+
+def load_model1024_imgnet():
+    config1024 = load_config("logs/vqgan_imagenet_f16_1024/configs/model.yaml",
+                             display=False)
+    model = load_vqgan(
+        config1024,
+        ckpt_path="logs/vqgan_imagenet_f16_1024/checkpoints/last.ckpt").cuda()
+    return model
+
+def load_model16384_imgnet():
+    config16384 = load_config("logs/vqgan_imagenet_f16_16384/configs/model.yaml",
+                              display=False)
+    model = load_vqgan(
+        config16384,
+        ckpt_path="logs/vqgan_imagenet_f16_16384/checkpoints/last.ckpt").cuda()
+    return model
+
 if __name__ == "__main__":
 
-    MAP_PATH = {
-        "Baseline": "logs_mark/2022-12-18T07-06-50_chroma_vqgan",
-        "RandGray": "logs_mark/2022-12-18T07-08-41_chroma_vqgan_randgray",
-        "VQHint": "logs_mark/2022-12-20T02-00-03_chroma_vqgan",
-        "VQHint+RandGray":
-        "logs_mark/2022-12-20T02-01-42_chroma_vqgan_randgray",
-        "ScaleGray": "logs_mark/2022-12-21T12-25-22_chroma_vqgan",
-    }
-
-    # DEFINE MODEL
-    system = System()
-    model = system.set_model(key="ScaleGray")
+    model = load_model16384_imgnet()
 
     # DEFINE DATASET
-    dataset = ImageFolder("datasets/train",
+    dataset = ImageFolder("~/dataset-local/imagenet/ILSVRC/Data/CLS-LOC/train",
                           transform=Compose([
                               ToTensor(),
                               Resize(256),
                               CenterCrop(256),
                           ]))
-    dataloader = DataLoader(dataset, batch_size=8)
+    dataloader = DataLoader(dataset, batch_size=32)
 
     # DEFINE DATASET
-    for i, (x, cls) in enumerate(tqdm(dataloader)):
-        x = SignalProcessor.renorm_zero_1_to_m1_1(x)
-        x_g = Grayscale()(x)
+    with torch.no_grad():
+        for i, (x, cls) in enumerate(tqdm(dataloader)):
+            x = x.cuda()
+            x = SignalProcessor.renorm_zero_1_to_m1_1(x)
+            z, _, [_, _, indices] = model.encode(x)
 
-        x = x.cuda()
-        x_g = x_g.cuda()
-        h = model.encoder(x)
-        h = model.quant_conv(h)
-        quant, emb_loss, info = model.quantize(h)
-        code: np.ndarray = info[2].cpu().numpy()
-        np.save("experiments/code-hist_scale/code_%04d" % i, code)
+            # xrec = model.decode(z)
+            # xrec = SignalProcessor.renorm_m1_1_to_zero_1(xrec).clamp(0, 1)
+            # ToPILImage()(xrec[1]).show()
+
+            code: np.ndarray = indices.cpu().numpy()
+            np.save("tmp_imgnet16384/code_%06d" % i, code)
