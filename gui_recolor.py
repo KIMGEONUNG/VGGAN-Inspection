@@ -11,6 +11,7 @@ import numpy as np
 from torchvision.transforms import ToPILImage, Grayscale
 
 from taming.util import load_model_from_config
+from taming.algorithms import GrayConversion, SignalProcessor
 
 
 class ReColorGUI(object):
@@ -21,27 +22,57 @@ class ReColorGUI(object):
         self.height = 300
         self.model = None
         self.hint = None
+        self.gray = None
+
+        self.gray_converter4view = GrayConversion(
+            preprocess=lambda x: x / 255.0,
+            postprocess=lambda x: (np.tile(x,
+                                           (1, 1, 3)) * 255).astype('uint8'))
+
+        self.methods_gray = [
+            "classic",
+            "scale",
+            "scale_with_invert",
+            "normal_weight_A",
+            "normal_weight_A_equalsign",
+            "normal_weight_B",
+            "uniform_weight_A",
+        ]
 
         # Define GUI Layout
         css = r"img { image-rendering: pixelated; }"
         with gr.Blocks(css=css) as self.demo:
             with gr.Box():
-                with gr.Row():
-                    view_gt = gr.Image(label="GT").style(height=self.height)
+                with gr.Box(), gr.Row():
+                    view_gt = gr.Image(
+                        label="GT",
+                        interactive=False).style(height=self.height)
+                    with gr.Column():
+                        view_gray = gr.Image(
+                            label="Gray",
+                            interactive=False).style(height=self.height)
+                        with gr.Row():
+                            btn_gray = gr.Button("Convert")
+                            upload_gray = gr.UploadButton(
+                                "Upload",
+                                file_types=["image"],
+                                file_count="single")
+                            drop_gray = gr.Dropdown(choices=self.methods_gray,
+                                                    value=self.methods_gray[0])
                     view_stroke = gr.ImagePaint(label="Stroke").style(
                         height=self.height)
-                with gr.Row():
-                    view_hint = gr.Image(
-                        label="hint",
-                        interactive=True).style(height=self.height)
+                with gr.Box(), gr.Row():
+                    with gr.Column():
+                        view_hint = gr.Image(
+                            label="hint",
+                            interactive=False).style(height=self.height)
+                        upload_hint = gr.UploadButton(
+                            "Upload",
+                            file_types=["image"],
+                            file_count="single")
                     view_overlay = gr.Image(
                         label="overlay",
                         interactive=False).style(height=self.height)
-                with gr.Row():
-                    upload_button = gr.UploadButton(
-                        "Click to Upload a hint image",
-                        file_types=["image"],
-                        file_count="single")
                 gr.Examples(sorted(glob("inputs/birds256/*")), inputs=view_gt)
 
             with gr.Box():
@@ -52,6 +83,7 @@ class ReColorGUI(object):
                         "VQHint",
                         "VQHint+RandGray",
                         "ScaleGray",
+                        "ScaleGrayIvt",
                     ])
                     btn = gr.Button("Colorize").style(height=self.height)
 
@@ -65,17 +97,42 @@ class ReColorGUI(object):
                     interactive=False).style(height=self.height)
 
             # Define GUI Events
-            upload_button.upload(self._upload_hint,
-                                 inputs=[upload_button, view_gt],
+            upload_hint.upload(self._upload_hint,
+                                 inputs=[upload_hint, view_gt],
                                  outputs=[view_hint, view_overlay])
+            upload_gray.upload(self._upload_gray,
+                                 inputs=[upload_gray],
+                                 outputs=[view_gray])
             view_gt.change(self._togray, view_gt, view_stroke)
             view_stroke.change(self._mk_hint, [view_stroke, view_gt],
                                [view_hint, view_overlay])
             path_log.change(self.set_model, inputs=[path_log], outputs=console)
             btn.click(self.predict, inputs=[view_gt], outputs=[view_output])
+            view_gt.change(self._cvt_gray,
+                           inputs=[view_gt, drop_gray],
+                           outputs=[view_gray])
+            btn_gray.click(self._cvt_gray,
+                           inputs=[view_gt, drop_gray],
+                           outputs=[view_gray])
 
     def launch(self):
         self.demo.launch(share=self.share)
+
+    def _cvt_gray(self, x, method):
+        if x is None:
+            return None
+        img, _ = self.gray_converter4view.gen_method3str(x, method)
+
+        gray: torch.Tensor = torch.from_numpy(img[..., :1] / 255.0 * 2.0 - 1)
+        self.gray = gray.permute(2, 0, 1).float()
+
+        return img
+
+    def _upload_gray(self, file):
+        img = skimage.io.imread(file.name)
+        gray: torch.Tensor = torch.from_numpy(img[..., :1] / 255.0 * 2.0 - 1)
+        self.gray = gray.permute(2, 0, 1).float()
+        return img
 
     def _upload_hint(self, file, gt):
         hint = skimage.io.imread(file.name)
@@ -179,6 +236,7 @@ class ReColorGUI(object):
             "VQHint+RandGray":
             "logs_mark/2022-12-20T02-01-42_chroma_vqgan_randgray",
             "ScaleGray": "logs_mark/2022-12-21T12-25-22_chroma_vqgan",
+            "ScaleGrayIvt": "logs_mark/2022-12-26T03-16-40_chroma_vqgan",
         }
 
         path_log = MAP_PATH[key]
@@ -207,7 +265,10 @@ class ReColorGUI(object):
             return None
         # Preprocessing
         x = torch.from_numpy(img).permute(2, 0, 1).div(255).mul(2).add(-1)
-        x_g = Grayscale()(x)
+        if self.gray is None:
+            x_g = Grayscale()(x)
+        else:
+            x_g = self.gray
 
         x = x.unsqueeze(0).cuda()
         x_g = x_g.unsqueeze(0).cuda()
