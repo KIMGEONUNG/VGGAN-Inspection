@@ -12,6 +12,7 @@ from torchvision.transforms import ToPILImage, Grayscale
 
 from taming.util import load_model_from_config
 from taming.algorithms import GrayConversion, SignalProcessor
+from gui_config import MAP_PATH, CHOICES
 
 
 class ReColorGUI(object):
@@ -53,10 +54,9 @@ class ReColorGUI(object):
                             interactive=False).style(height=self.height)
                         with gr.Row():
                             btn_gray = gr.Button("Convert")
-                            upload_gray = gr.UploadButton(
-                                "Upload",
-                                file_types=["image"],
-                                file_count="single")
+                            upload_gray = gr.UploadButton("Upload",
+                                                          file_types=["image"],
+                                                          file_count="single")
                             drop_gray = gr.Dropdown(choices=self.methods_gray,
                                                     value=self.methods_gray[0])
                     view_stroke = gr.ImagePaint(label="Stroke").style(
@@ -66,10 +66,9 @@ class ReColorGUI(object):
                         view_hint = gr.Image(
                             label="hint",
                             interactive=False).style(height=self.height)
-                        upload_hint = gr.UploadButton(
-                            "Upload",
-                            file_types=["image"],
-                            file_count="single")
+                        upload_hint = gr.UploadButton("Upload",
+                                                      file_types=["image"],
+                                                      file_count="single")
                     view_overlay = gr.Image(
                         label="overlay",
                         interactive=False).style(height=self.height)
@@ -77,14 +76,7 @@ class ReColorGUI(object):
 
             with gr.Box():
                 with gr.Row():
-                    path_log = gr.Dropdown(choices=[
-                        "Baseline",
-                        "RandGray",
-                        "VQHint",
-                        "VQHint+RandGray",
-                        "ScaleGray",
-                        "ScaleGrayIvt",
-                    ])
+                    path_log = gr.Dropdown(choices=CHOICES)
                     btn = gr.Button("Colorize").style(height=self.height)
 
                 with gr.Row():
@@ -98,11 +90,11 @@ class ReColorGUI(object):
 
             # Define GUI Events
             upload_hint.upload(self._upload_hint,
-                                 inputs=[upload_hint, view_gt],
-                                 outputs=[view_hint, view_overlay])
+                               inputs=[upload_hint, view_gt],
+                               outputs=[view_hint, view_overlay])
             upload_gray.upload(self._upload_gray,
-                                 inputs=[upload_gray],
-                                 outputs=[view_gray])
+                               inputs=[upload_gray],
+                               outputs=[view_gray])
             view_gt.change(self._togray, view_gt, view_stroke)
             view_stroke.change(self._mk_hint, [view_stroke, view_gt],
                                [view_hint, view_overlay])
@@ -228,17 +220,6 @@ class ReColorGUI(object):
         return model, global_step
 
     def set_model(self, key):
-
-        MAP_PATH = {
-            "Baseline": "logs_mark/2022-12-18T07-06-50_chroma_vqgan",
-            "RandGray": "logs_mark/2022-12-18T07-08-41_chroma_vqgan_randgray",
-            "VQHint": "logs_mark/2022-12-20T02-00-03_chroma_vqgan",
-            "VQHint+RandGray":
-            "logs_mark/2022-12-20T02-01-42_chroma_vqgan_randgray",
-            "ScaleGray": "logs_mark/2022-12-21T12-25-22_chroma_vqgan",
-            "ScaleGrayIvt": "logs_mark/2022-12-26T03-16-40_chroma_vqgan",
-        }
-
         path_log = MAP_PATH[key]
 
         path_ckpt = sorted(glob(join(path_log, "checkpoints/*.ckpt")))[-1]

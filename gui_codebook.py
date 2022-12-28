@@ -10,64 +10,153 @@ from torchvision.transforms import ToPILImage, Grayscale
 
 from taming.util import load_model_from_config
 import matplotlib.pyplot as plt
+from gui_config import MAP_PATH, CHOICES
 
 
 class CodebookdGUI(object):
     """Recolorization GUI System"""
 
-    def __init__(self, share=True):
+    def __init__(self, share=False):
         self.share = share
         self.height = 300
         self.model = None
         self.hint = None
+        self.cmap = None
 
         # Define GUI Layout
         css = r"img { image-rendering: pixelated; }"
         with gr.Blocks(css=css) as self.demo:
-            with gr.Box():
-                with gr.Row():
-                    view_gt = gr.Image(
-                        label="GT",
-                        interactive=False).style(height=self.height)
+            with gr.Box(), gr.Row():
+                view_gt = gr.Image(label="GT",
+                                   interactive=False).style(height=self.height)
+                with gr.Column():
                     view_codebook = gr.Image(
                         label="Code",
                         interactive=False).style(height=self.height)
+                    btn_getcode = gr.Button("Get Code")
+                with gr.Column():
                     view_recon = gr.Image(
                         label="Recon.",
                         interactive=False).style(height=self.height)
+                    btn_recon = gr.Button("Reconstruct from Code")
+            gr.Examples(sorted(glob("inputs/birds256/*")), inputs=view_gt)
+            with gr.Box(), gr.Column():
                 with gr.Row():
-                    upload_button = gr.UploadButton(
-                        "Click to Upload a hint image",
-                        file_types=["image"],
-                        file_count="single")
-                gr.Examples(sorted(glob("inputs/birds256/*")), inputs=view_gt)
-
-            with gr.Box():
+                    choice_g = gr.Dropdown(
+                        label="Gray",
+                        choices=["Original", "Zeros", "Ones", "-Ones", "Gaussian"],
+                        value="Original")
+                    choice_gfeat = gr.Dropdown(
+                        label="Gray Feature",
+                        choices=["Original", "Zeros", "Ones", "Gaussian"],
+                        value="Original")
                 with gr.Row():
-                    path_log = gr.Dropdown(choices=[
-                        "Baseline",
-                        "RandGray",
-                        "VQHint",
-                        "VQHint+RandGray",
-                        "ScaleGray",
-                    ])
-                    btn = gr.Button("Colorize").style(height=self.height)
-
-                with gr.Column():
+                    choice_model = gr.Dropdown(label="Model",
+                                               choices=CHOICES)
                     log_ckpt = gr.Textbox(placeholder="No message",
                                           label="log ckpt",
                                           interactive=False)
-                    log_code = gr.Textbox(placeholder="No message",
-                                          label="log code",
-                                          interactive=False)
 
+            with gr.Box(), gr.Column():
+                vqcodes = gr.Dataframe(
+                    headers=['_'] * 16,
+                    interactive=True,
+                    row_count=(16, "fixed"),
+                    col_count=(16, "fixed"),
+                )
+                with gr.Row():
+                    btn_setall = gr.Button("Set all")
+                    target_id = gr.Number()
             # Define GUI Events
-            path_log.change(self.set_model,
-                            inputs=[path_log],
-                            outputs=log_ckpt)
-            btn.click(self.predict,
-                      inputs=[view_gt],
-                      outputs=[view_codebook, view_recon, log_code])
+            vqcodes.change(self.change_code,
+                           inputs=vqcodes,
+                           outputs=view_codebook)
+            btn_setall.click(lambda x: [[x] * 16] * 16,
+                             inputs=target_id,
+                             outputs=vqcodes)
+            choice_model.change(self.set_model,
+                                inputs=[choice_model],
+                                outputs=log_ckpt)
+            btn_getcode.click(self.estimate_code,
+                              inputs=view_gt,
+                              outputs=[view_codebook, vqcodes])
+            btn_recon.click(self.recon3code,
+                            inputs=[view_gt, vqcodes, choice_g, choice_gfeat],
+                            outputs=view_recon)
+
+    def change_code(self, code):
+        if code is None or self.cmap is None:
+            return None
+        code = code.to_numpy()
+        code = self.cmap(code)[..., :-1]
+        code = code.reshape(16, 16, -1)
+        code = (code * 255).astype('uint8')
+        return code
+
+    def estimate_code(self, img):
+        if self.model is None or img is None:
+            return None
+        # Preprocessing
+        x = torch.from_numpy(img).permute(2, 0, 1).div(255).mul(2).add(-1)
+        x = x.unsqueeze(0).cuda()
+
+        # Estimatation
+        h = self.model.encoder(x)
+        h = self.model.quant_conv(h)
+        quant, emb_loss, info = self.model.quantize(h)
+
+        # Visualization
+        code = info[2].cpu().numpy()
+        code_log = code.reshape(16, 16)
+        code = self.cmap(code)[..., :-1]
+        code = code.reshape(16, 16, -1)
+        code = (code * 255).astype('uint8')
+
+        return code, code_log
+
+    def recon3code(self, img, code, choice_g, choice_gfeat):
+        if self.model is None or img is None:
+            return None
+        # Preprocessing
+        x = torch.from_numpy(img).permute(2, 0, 1).div(255).mul(2).add(-1)
+        x_g = Grayscale()(x)
+
+        x = x.unsqueeze(0).cuda()
+        x_g = x_g.unsqueeze(0).cuda()
+
+        if choice_g == "Original":
+            pass
+        elif choice_g == "Zeros":
+            x_g = torch.zeros_like(x_g)
+        elif choice_g == "Ones":
+            x_g = torch.ones_like(x_g)
+        elif choice_g == "-Ones":
+            x_g = - torch.ones_like(x_g)
+        elif choice_g == "Gaussian":
+            x_g = torch.randn_like(x_g)
+
+        code = torch.from_numpy(code.to_numpy()).cuda()
+
+        # Estimation
+        feat_g = self.model.encoder_gray(x_g)
+
+        if choice_gfeat == "Original":
+            pass
+        elif choice_gfeat == "Zeros":
+            feat_g = torch.zeros_like(feat_g)
+        elif choice_gfeat == "Ones":
+            feat_g = torch.ones_like(feat_g)
+        elif choice_gfeat == "Gaussian":
+            feat_g = torch.randn_like(feat_g)
+
+        quant = self.model.quantize.get_codebook_entry(code, (1, 16, 16, 256))
+        quant = torch.cat([quant, feat_g], dim=-3)
+        xrec = self.model.decode(quant)
+
+        # Postprocessing
+        xrec = xrec.cpu().add(1).div(2).clamp(0, 1)[0]
+        output = ToPILImage()(xrec)
+        return output
 
     def launch(self):
         self.demo.launch(share=self.share)
@@ -87,16 +176,6 @@ class CodebookdGUI(object):
         return model, global_step
 
     def set_model(self, key):
-
-        MAP_PATH = {
-            "Baseline": "logs_mark/2022-12-18T07-06-50_chroma_vqgan",
-            "RandGray": "logs_mark/2022-12-18T07-08-41_chroma_vqgan_randgray",
-            "VQHint": "logs_mark/2022-12-20T02-00-03_chroma_vqgan",
-            "VQHint+RandGray":
-            "logs_mark/2022-12-20T02-01-42_chroma_vqgan_randgray",
-            "ScaleGray": "logs_mark/2022-12-21T12-25-22_chroma_vqgan",
-        }
-
         path_log = MAP_PATH[key]
 
         path_ckpt = sorted(glob(join(path_log, "checkpoints/*.ckpt")))[-1]
@@ -121,13 +200,12 @@ class CodebookdGUI(object):
         return message
 
     @torch.no_grad()
-    def get_visible_cods(self, x):
+    def get_visible_codes(self, x):
         h = self.model.encoder(x)
-        h = self.model.quant_conv(
-            h)  # After that we have to use mask and hint
+        h = self.model.quant_conv(h)  # After that we have to use mask and hint
         quant, emb_loss, info = self.model.quantize(h)
         code = info[2].cpu().numpy()
-        code_log = str(code.reshape(16, 16))
+        code_log = code.reshape(16, 16)
         code = self.cmap(code)[..., :-1]
         code = code.reshape(16, 16, -1)
         code = (code * 255).astype('uint8')
@@ -149,7 +227,7 @@ class CodebookdGUI(object):
         mask = torch.zeros(1, 1, 16, 16).cuda()
 
         # Inference
-        code, code_log = self.get_visible_cods(x)
+        code, code_log = self.get_visible_codes(x)
 
         with torch.no_grad():
             xrec, _ = self.model(x, x_g, hint, mask)
