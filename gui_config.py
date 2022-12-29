@@ -6,6 +6,7 @@ CHOICES = [
     "VQHint+ScaleGray",
     "VQHint+ScaleGrayIvt",
     "Hybrid+RandGray",
+    "Hybrid+ScaleGray",
     "Hybrid+ScaleGrayIvt",
 ]
 
@@ -16,5 +17,6 @@ MAP_PATH = {
     "VQHint+ScaleGray": "logs_mark/2022-12-21T12-25-22_chroma_vqgan",
     "VQHint+ScaleGrayIvt": "logs_mark/2022-12-26T03-16-40_chroma_vqgan",
     "Hybrid+RandGray": "logs_mark/2022-12-18T07-08-41_chroma_vqgan_randgray",
+    "Hybrid+ScaleGray": "logs_mark/2022-12-28T02-04-41_chroma_vqgan/",
     "Hybrid+ScaleGrayIvt": "logs_mark/2022-12-27T02-03-01_chroma_vqgan",
 }

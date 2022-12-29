@@ -20,7 +20,7 @@ class CodebookdGUI(object):
         self.share = share
         self.height = 300
         self.model = None
-        self.hint = None
+        self.vqhint = None
         self.cmap = None
 
         # Define GUI Layout
@@ -29,6 +29,9 @@ class CodebookdGUI(object):
             with gr.Box(), gr.Row():
                 view_gt = gr.Image(label="GT",
                                    interactive=False).style(height=self.height)
+                view_hint = gr.Image(
+                    label="Hint", interactive=False).style(height=self.height)
+            with gr.Box(), gr.Row():
                 with gr.Column():
                     view_codebook = gr.Image(
                         label="Code",
@@ -40,19 +43,21 @@ class CodebookdGUI(object):
                         interactive=False).style(height=self.height)
                     btn_recon = gr.Button("Reconstruct from Code")
             gr.Examples(sorted(glob("inputs/birds256/*")), inputs=view_gt)
+            gr.Examples(sorted(glob("inputs/hints/*")), inputs=view_hint)
             with gr.Box(), gr.Column():
                 with gr.Row():
-                    choice_g = gr.Dropdown(
-                        label="Gray",
-                        choices=["Original", "Zeros", "Ones", "-Ones", "Gaussian"],
-                        value="Original")
+                    choice_g = gr.Dropdown(label="Gray",
+                                           choices=[
+                                               "Original", "Zeros", "Ones",
+                                               "-Ones", "Gaussian"
+                                           ],
+                                           value="Original")
                     choice_gfeat = gr.Dropdown(
                         label="Gray Feature",
                         choices=["Original", "Zeros", "Ones", "Gaussian"],
                         value="Original")
                 with gr.Row():
-                    choice_model = gr.Dropdown(label="Model",
-                                               choices=CHOICES)
+                    choice_model = gr.Dropdown(label="Model", choices=CHOICES)
                     log_ckpt = gr.Textbox(placeholder="No message",
                                           label="log ckpt",
                                           interactive=False)
@@ -77,12 +82,14 @@ class CodebookdGUI(object):
             choice_model.change(self.set_model,
                                 inputs=[choice_model],
                                 outputs=log_ckpt)
+
             btn_getcode.click(self.estimate_code,
-                              inputs=view_gt,
+                              inputs=[view_gt, view_hint],
                               outputs=[view_codebook, vqcodes])
-            btn_recon.click(self.recon3code,
-                            inputs=[view_gt, vqcodes, choice_g, choice_gfeat],
-                            outputs=view_recon)
+            btn_recon.click(
+                self.recon3code,
+                inputs=[view_gt, view_hint, vqcodes, choice_g, choice_gfeat],
+                outputs=view_recon)
 
     def change_code(self, code):
         if code is None or self.cmap is None:
@@ -93,8 +100,22 @@ class CodebookdGUI(object):
         code = (code * 255).astype('uint8')
         return code
 
-    def estimate_code(self, img):
-        if self.model is None or img is None:
+    def extract_hint_and_mask(self, hint_raw):
+        mask = np.all(hint_raw == [0, 0, 0], axis=-1) == False
+        mask = mask[None, None, ...]
+        mask = torch.from_numpy(mask)
+
+        hint = torch.from_numpy(hint_raw).permute(2, 0,
+                                                  1).div(255).mul(2).add(-1)
+        hint = hint[None, ...]
+
+        mask = mask.to(torch.float32).cuda()
+        hint = hint.to(torch.float32).cuda()
+
+        return hint, mask
+
+    def estimate_code(self, img, hint_raw):
+        if self.model is None or img is None or hint_raw is None:
             return None
         # Preprocessing
         x = torch.from_numpy(img).permute(2, 0, 1).div(255).mul(2).add(-1)
@@ -103,10 +124,17 @@ class CodebookdGUI(object):
         # Estimatation
         h = self.model.encoder(x)
         h = self.model.quant_conv(h)
-        quant, emb_loss, info = self.model.quantize(h)
+
+        if self.vqhint:
+            hint, mask = self.extract_hint_and_mask(hint_raw)
+            hint_embd = self.model.color2embd(hint)
+            h = mask * hint_embd + (1 - mask) * h
+            _, _, (_, _, code) = self.model.quantize(h)
+        else:
+            _, _, (_, _, code) = self.model.quantize(h)
 
         # Visualization
-        code = info[2].cpu().numpy()
+        code = code.cpu().numpy()
         code_log = code.reshape(16, 16)
         code = self.cmap(code)[..., :-1]
         code = code.reshape(16, 16, -1)
@@ -114,7 +142,7 @@ class CodebookdGUI(object):
 
         return code, code_log
 
-    def recon3code(self, img, code, choice_g, choice_gfeat):
+    def recon3code(self, img, hint_raw, code, choice_g, choice_gfeat):
         if self.model is None or img is None:
             return None
         # Preprocessing
@@ -131,11 +159,9 @@ class CodebookdGUI(object):
         elif choice_g == "Ones":
             x_g = torch.ones_like(x_g)
         elif choice_g == "-Ones":
-            x_g = - torch.ones_like(x_g)
+            x_g = -torch.ones_like(x_g)
         elif choice_g == "Gaussian":
             x_g = torch.randn_like(x_g)
-
-        code = torch.from_numpy(code.to_numpy()).cuda()
 
         # Estimation
         feat_g = self.model.encoder_gray(x_g)
@@ -149,7 +175,14 @@ class CodebookdGUI(object):
         elif choice_gfeat == "Gaussian":
             feat_g = torch.randn_like(feat_g)
 
+        code = torch.from_numpy(code.to_numpy()).cuda()
         quant = self.model.quantize.get_codebook_entry(code, (1, 16, 16, 256))
+
+        if not self.vqhint:
+            hint, mask = self.extract_hint_and_mask(hint_raw)
+            hint_embd = self.model.color2embd(hint)
+            quant = mask * hint_embd + (1 - mask) * quant
+
         quant = torch.cat([quant, feat_g], dim=-3)
         xrec = self.model.decode(quant)
 
@@ -191,6 +224,7 @@ class CodebookdGUI(object):
         self.model = model
 
         self.n_embed = config["model"]["params"]["n_embed"]
+        self.vqhint = config["model"]["params"]["vqhint"]
         self.cmap = plt.cm.get_cmap('hsv', self.n_embed)
 
         message = "New model was set %s with n_embed %d" % (path_ckpt,
