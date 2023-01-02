@@ -27,6 +27,7 @@ class ChromaVQ(pl.LightningModule):
             n_embed,
             embed_dim,
             vqhint,
+            cond_gray_feat=False,
             ckpt_path=None,
             ignore_keys=[],
             image_key="image",
@@ -42,7 +43,8 @@ class ChromaVQ(pl.LightningModule):
         self.gray_key = gray_key
         self.hint_key = hint_key
         self.mask_key = mask_key
-        self.vqhint = vqhint 
+        self.vqhint = vqhint
+        self.cond_gray_feat = cond_gray_feat
 
         # Models
         self.encoder = Encoder(**encoder_config)
@@ -92,6 +94,9 @@ class ChromaVQ(pl.LightningModule):
         else:
             quant, emb_loss, info = self.quantize(h)
             quant = mask * hint_embd + (1 - mask) * quant
+
+        if self.cond_gray_feat:
+            feat_g = feat_g + mask * hint_embd
 
         quant = torch.cat([quant, feat_g], dim=-3)
 
