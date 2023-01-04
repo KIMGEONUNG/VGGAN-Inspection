@@ -21,6 +21,7 @@ class CodebookdGUI(object):
         self.height = 300
         self.model = None
         self.vqhint = None
+        self.cond_gray_feat = None
         self.cmap = None
 
         # Define GUI Layout
@@ -178,10 +179,14 @@ class CodebookdGUI(object):
         code = torch.from_numpy(code.to_numpy()).cuda()
         quant = self.model.quantize.get_codebook_entry(code, (1, 16, 16, 256))
 
+        hint, mask = self.extract_hint_and_mask(hint_raw)
+        hint_embd = self.model.color2embd(hint)
+
         if not self.vqhint:
-            hint, mask = self.extract_hint_and_mask(hint_raw)
-            hint_embd = self.model.color2embd(hint)
             quant = mask * hint_embd + (1 - mask) * quant
+
+        if self.cond_gray_feat:
+            feat_g = feat_g + mask * hint_embd
 
         quant = torch.cat([quant, feat_g], dim=-3)
         xrec = self.model.decode(quant)
@@ -225,6 +230,7 @@ class CodebookdGUI(object):
 
         self.n_embed = config["model"]["params"]["n_embed"]
         self.vqhint = config["model"]["params"]["vqhint"]
+        self.cond_gray_feat = config["model"]["params"]["cond_gray_feat"] if not None else False
         self.cmap = plt.cm.get_cmap('hsv', self.n_embed)
 
         message = "New model was set %s with n_embed %d" % (path_ckpt,
