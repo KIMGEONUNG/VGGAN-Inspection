@@ -19,6 +19,7 @@ class GraysGUI(object):
 
         self.methods = [
             "classic",
+            "shrink",
             "scale",
             "scale_with_invert",
             "normal_weight_A",

@@ -78,6 +78,23 @@ class GrayConversion():
 
         return x, named_params
 
+    def shrink(self, x, coef=0.1):
+        g = (x @ self.w_classic)[..., None]
+
+        shrink = np.random.uniform(0, 1)
+        bias = np.random.uniform(0, 1)
+
+        shrink = max(shrink, 0.1) * coef
+        bias = min(bias, 1.0 - shrink)
+        g = g * shrink + bias
+
+        # Params
+        named_params = {}
+        named_params["shrink"] = shrink
+        named_params["bias"] = bias
+
+        return g, named_params
+
     def scale(self, x):
         g = (x @ self.w_classic)[..., None]
 
