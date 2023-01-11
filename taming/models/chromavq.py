@@ -212,7 +212,7 @@ class ChromaVQ(pl.LightningModule):
         self.log_dict(log_dict_ae)
         self.log_dict(log_dict_disc)
 
-        if batch_idx == 0:
+        if batch_idx % 5:
             self._log_images(x, x_g, hint, mask, xrec)
 
         return self.log_dict

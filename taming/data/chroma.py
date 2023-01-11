@@ -8,19 +8,26 @@ from skimage import io
 import skimage.measure
 import random
 from ..algorithms import HintSampler, GrayConversion, SignalProcessor
+from skimage import filters
 
 
 class ImagePaths(Dataset):
 
-    def __init__(self,
-                 paths,
-                 size=None,
-                 random_crop=False,
-                 labels=None,
-                 togray="classic"):
+    def __init__(
+        self,
+        paths,
+        size=None,
+        random_crop=False,
+        labels=None,
+        togray="classic",
+        blur=False,
+        prop_mask=0.5,
+    ):
         self.size = size
         self.random_crop = random_crop
         self.togray_method = togray
+        self.blur = blur
+        self.prop_mask = prop_mask
 
         self.labels = dict() if labels is None else labels
         self.labels["file_path_"] = paths
@@ -62,14 +69,25 @@ class ImagePaths(Dataset):
         mask = np.random.binomial(1, p=prop, size=spatial)
         return mask
 
+    def add_blur(self, x, var_min=2.0, var_max=4.0):
+        var = random.random() * (var_max - var_min) + var_min
+
+        x = SignalProcessor.renorm_m1_1_to_zero_1(x)
+        x = filters.gaussian(x, sigma=var)
+        x = SignalProcessor.renorm_zero_1_to_m1_1(x)
+
+        return x
+
     def __getitem__(self, i):
         example = dict()
         # The image range is [-1, 1]
         image = self.preprocess_image(self.labels["file_path_"][i])
         example["image"] = image
         example["gray"] = self.togray(image)
+        if self.blur:
+            example["gray"] = self.add_blur(example["gray"])
         example["hint"] = self.hint_sampler(image)
-        example["mask"] = self.gen_mask()
+        example["mask"] = self.gen_mask(prop=self.prop_mask)
         for k in self.labels:
             example[k] = self.labels[k][i]
         return example
@@ -91,20 +109,46 @@ class ChromaBase(Dataset):
 
 class ChromaTrain(ChromaBase):
 
-    def __init__(self, size, training_images_list_file, togray):
+    def __init__(
+        self,
+        size,
+        training_images_list_file,
+        togray,
+        blur=False,
+        prop_mask=0.5,
+    ):
         super().__init__()
         with open(training_images_list_file, "r") as f:
             paths = f.read().splitlines()
-        self.data = ImagePaths(paths=paths, size=size, togray=togray)
+        self.data = ImagePaths(
+            paths=paths,
+            size=size,
+            togray=togray,
+            blur=blur,
+            prop_mask=prop_mask,
+        )
 
 
 class ChromaTest(ChromaBase):
 
-    def __init__(self, size, test_images_list_file, togray):
+    def __init__(
+        self,
+        size,
+        test_images_list_file,
+        togray,
+        blur=False,
+        prop_mask=0.5,
+    ):
         super().__init__()
         with open(test_images_list_file, "r") as f:
             paths = f.read().splitlines()
-        self.data = ImagePaths(paths=paths, size=size, togray=togray)
+        self.data = ImagePaths(
+            paths=paths,
+            size=size,
+            togray=togray,
+            blur=blur,
+            prop_mask=prop_mask,
+        )
 
 
 class ImagePaths2(Dataset):

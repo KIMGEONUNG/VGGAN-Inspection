@@ -54,12 +54,16 @@ data:
     train:
       target: taming.data.chroma.ChromaTrain
       params:
-        togray: scale
-        training_images_list_file: datasets/train.txt
+        togray: classic
+        blur: True
+        prop_mask: 0.0
+        training_images_list_file: data_index/train_bird10.txt
         size: 256
     validation:
       target: taming.data.chroma.ChromaTest
       params:
-        togray: scale
-        test_images_list_file: datasets/valid.txt
+        togray: classic
+        blur: True
+        prop_mask: 0.0
+        test_images_list_file: data_index/valid_bird10.txt
         size: 256
